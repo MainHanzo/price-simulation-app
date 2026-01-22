@@ -1,11 +1,15 @@
 import asyncio
 import math
 import random
-from datetime import datetime, time as dt_time, timedelta
+from datetime import datetime, time, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
+from app.date_helper import *
 
+
+MARKET_OPEN_DT = market_open_dt()
+CACHE_MAX_SIZE = 390 # number of minutes in a standard trading day
 
 @dataclass
 class PricePoint:
@@ -14,64 +18,61 @@ class PricePoint:
 
 
 class PriceEngine:
-    def __init__(self, tickers: List[str], session_start_dt: Optional[datetime] = None) -> None:
+    def __init__(self, tickers: List[str], client_cur_dt: Optional[datetime] = None) -> None:
         self.tickers = tickers
-        self.latest: Dict[str, PricePoint] = {}
-        self.history: Dict[str, List[Optional[PricePoint]]] = {}
-        self.params: Dict[str, Dict[str, float]] = {}
+        self.ticker_latest_cache: Dict[str, PricePoint] = {}
+        self.ticker_history_map: Dict[str, List[Optional[PricePoint]]] = {}
+        self.ticker_params_map: Dict[str, Dict[str, float]] = {}
         self.lock = asyncio.Lock()
         self.minute_index = 0
-        if session_start_dt is None:
-            self.session_start_dt = self._market_open_dt()
+        if client_cur_dt is None:
+            self.client_cur_dt = MARKET_OPEN_DT
         else:
-            self.session_start_dt = session_start_dt
-        minutes_since_start = self._minutes_since_start(self.session_start_dt, self._market_open_dt())
+            self.client_cur_dt = client_cur_dt
+        nb_minutes = minutes_since_start(self.client_cur_dt, MARKET_OPEN_DT)
 
         for t in tickers:
             vol = random.uniform(0.1, 1)
             drift = random.uniform(0.05, 0.9)
             start_price = random.uniform(80.0, 150.0)
-            start_point = PricePoint(ts=self.session_start_dt.timestamp(), price=start_price)
-            history = [None] * 390
+            start_point = PricePoint(ts=MARKET_OPEN_DT.timestamp(), price=start_price)
+            history = [None] * CACHE_MAX_SIZE
             history[0] = start_point
-
             last_point = start_point
-            print(minutes_since_start)
-
-            for idx in range(1, minutes_since_start + 1):
-                session_time = self.session_start_dt + timedelta(minutes=idx)
+            
+            # construct historical prices up to current minute
+            for idx in range(1, nb_minutes + 1):
+                datetime_incremented = self.client_cur_dt + timedelta(minutes=idx)
                 next_price = self._next_price(last_point.price, vol, drift)
-                last_point = PricePoint(ts=session_time.timestamp(), price=next_price)
+                last_point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
                 history[idx] = last_point
 
-            self.latest[t] = last_point
-            self.history[t] = history
-            self.params[t] = {"volatility": vol, "drift": drift}
-        self.minute_index = minutes_since_start + 1
+            self.ticker_latest_cache[t] = last_point
+            self.ticker_history_map[t] = history
+            self.ticker_params_map[t] = {"volatility": vol, "drift": drift}
+        self.minute_index = nb_minutes + 1
+        print(self.minute_index)
 
     async def step(self) -> None:
         async with self.lock:
+            if self.minute_index >= CACHE_MAX_SIZE:
+                return
             idx = self.minute_index
-            session_time = self.session_start_dt + timedelta(minutes=idx)
+            datetime_incremented = self.client_cur_dt + timedelta(minutes=idx)
             for t in self.tickers:
-                last = self.latest[t]
-                vol = self.params[t]["volatility"]
-                drift = self.params[t]["drift"]
+                last = self.ticker_latest_cache[t]
+                vol = self.ticker_params_map[t]["volatility"]
+                drift = self.ticker_params_map[t]["drift"]
                 next_price = self._next_price(last.price, vol, drift)
-                point = PricePoint(ts=session_time.timestamp(), price=next_price)
-                self.latest[t] = point
-                self.history[t][idx] = point
-            self.minute_index = (self.minute_index + 1) % 390
-            if self.minute_index == 0:
-                self.session_start_dt = self.session_start_dt + timedelta(days=1)
-
-    @staticmethod
-    def _minutes_since_start(session_start_dt: datetime, open_dt: datetime) -> int:
-        return int((session_start_dt - open_dt).total_seconds() // 60)
+                point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
+                self.ticker_latest_cache[t] = point
+                self.ticker_history_map[t][idx] = point
+            self.minute_index += 1
+            print(self.minute_index)
 
     @staticmethod
     def _next_price(last_price: float, vol: float, drift: float) -> float:
-        dt = 1.0 / 390.0  # one minute of a 6.5h trading day
+        dt = 1.0 / CACHE_MAX_SIZE  # one minute of a 6.5h trading day
         z = random.gauss(0.0, 1.0)
         return last_price * math.exp((drift - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * z)
 
@@ -79,11 +80,4 @@ class PriceEngine:
     def _session_start_dt() -> datetime:
         tz = ZoneInfo("America/New_York")
         now = datetime.now(tz=tz)
-        return datetime.combine(now.date(), dt_time(9, 30), tzinfo=tz)
-
-
-    @staticmethod
-    def _market_open_dt() -> datetime:
-        tz = ZoneInfo("America/New_York")
-        now = datetime.now(tz=tz)
-        return datetime.combine(now.date(), dt_time(9, 30), tzinfo=tz)
+        return datetime.combine(now.date(), datetime(9, 30), tzinfo=tz)

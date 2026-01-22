@@ -8,20 +8,20 @@ router = APIRouter()
 async def get_history(ticker: str, request: Request) -> List[dict]:
     engine = request.app.state.engine
     t = ticker.upper()
-    if t not in engine.history:
+    if t not in engine.ticker_history_map:
         raise HTTPException(status_code=404, detail="Unknown ticker")
     async with engine.lock:
-        return [{"ts": p.ts, "price": p.price} for p in engine.history[t] if p is not None]
+        return [{"ts": p.ts, "price": p.price} for p in engine.ticker_history_map[t] if p is not None]
 
 
 @router.get("/api/latest/{ticker}")
 async def get_latest(ticker: str, request: Request) -> dict:
     engine = request.app.state.engine
     t = ticker.upper()
-    if t not in engine.latest:
+    if t not in engine.ticker_latest_cache:
         raise HTTPException(status_code=404, detail="Unknown ticker")
     async with engine.lock:
-        p = engine.latest[t]
+        p = engine.ticker_latest_cache[t]
         return {"ts": p.ts, "price": p.price}
 
 
@@ -29,7 +29,7 @@ async def get_latest(ticker: str, request: Request) -> dict:
 async def get_params(ticker: str, request: Request) -> dict:
     engine = request.app.state.engine
     t = ticker.upper()
-    if t not in engine.params:
+    if t not in engine.ticker_params_map:
         raise HTTPException(status_code=404, detail="Unknown ticker")
     async with engine.lock:
         return {"volatility": engine.params[t]["volatility"], "drift": engine.params[t]["drift"]}

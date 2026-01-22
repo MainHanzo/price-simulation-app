@@ -1,10 +1,7 @@
 import asyncio
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 import random
 from datetime import datetime, time as dt_time, timedelta
@@ -21,7 +18,7 @@ def random_market_dt() -> datetime:
     return market_open + timedelta(minutes=offset_minutes)
 
 
-engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"], session_start_dt=random_market_dt())
+engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"], client_cur_dt=random_market_dt())
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -33,10 +30,6 @@ app.add_middleware(
 app.state.engine = engine
 app.include_router(router)
 
-BASE_DIR = Path(__file__).resolve().parent
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-
-
 @app.on_event("startup")
 async def start_generator() -> None:
     async def loop() -> None:
@@ -46,7 +39,3 @@ async def start_generator() -> None:
 
     asyncio.create_task(loop())
 
-
-@app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(BASE_DIR / "static" / "index.html")

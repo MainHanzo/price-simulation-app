@@ -8,6 +8,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Chart } from 'chart.js/auto';
 
 type PricePoint = {
   ts: number;
@@ -30,25 +31,28 @@ export class App implements AfterViewInit, OnDestroy {
   showEmpty = true;
 
   private pollTimer: number | null = null;
-  private ctx: CanvasRenderingContext2D | null = null;
+  private chart: Chart | null = null;
 
   @ViewChild('priceChart', { static: true })
   canvasRef!: ElementRef<HTMLCanvasElement>;
 
   @HostListener('window:resize')
   onResize() {
-    this.resizeCanvas();
-    this.drawChart();
+    if (this.chart) {
+      this.chart.resize();
+    }
   }
 
   ngAfterViewInit(): void {
-    this.resizeCanvas();
-    this.drawChart();
+    this.initChart();
   }
 
   ngOnDestroy(): void {
     if (this.pollTimer) {
       window.clearInterval(this.pollTimer);
+    }
+    if (this.chart) {
+      this.chart.destroy();
     }
   }
 
@@ -69,12 +73,12 @@ export class App implements AfterViewInit, OnDestroy {
     try {
       await this.fetchHistory(raw);
       await this.fetchLatest(raw);
-      this.drawChart();
+      this.updateChart();
       this.setStatus(`Streaming ${raw} every 60 seconds.`, false);
       this.pollTimer = window.setInterval(async () => {
         try {
           await this.fetchLatest(raw);
-          this.drawChart();
+          this.updateChart();
         } catch {
           this.setStatus('Polling failed. Try searching again.', true);
         }
@@ -111,76 +115,59 @@ export class App implements AfterViewInit, OnDestroy {
     this.latestPrice = data.price.toFixed(4);
   }
 
-  private resizeCanvas(): void {
+  private initChart(): void {
     const canvas = this.canvasRef.nativeElement;
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = canvas.clientWidth * ratio;
-    canvas.height = canvas.clientHeight * ratio;
-    this.ctx = canvas.getContext('2d');
-    if (this.ctx) {
-      this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    }
+    this.chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Price',
+            data: [],
+            borderColor: '#d97706',
+            backgroundColor: 'rgba(217, 119, 6, 0.12)',
+            pointRadius: 0,
+            tension: 0.25,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            grid: {
+              color: 'rgba(31, 26, 23, 0.2)',
+            },
+            ticks: {
+              maxTicksLimit: 6,
+            },
+          },
+          y: {
+            grid: {
+              color: 'rgba(31, 26, 23, 0.2)',
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: false,
+          },
+        },
+      },
+    });
   }
 
-  private drawChart(): void {
-    const canvas = this.canvasRef.nativeElement;
-    const ctx = this.ctx;
-    if (!ctx) {
+  private updateChart(): void {
+    this.showEmpty = this.points.length === 0;
+    if (!this.chart) {
       return;
     }
-
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    ctx.clearRect(0, 0, width, height);
-
-    if (!this.points.length) {
-      this.showEmpty = true;
-      return;
-    }
-    this.showEmpty = false;
-
-    const padding = 36;
-    const prices = this.points.map((p) => p.price);
-    let minPrice = Math.min(...prices);
-    let maxPrice = Math.max(...prices);
-    if (minPrice === maxPrice) {
-      minPrice -= 1;
-      maxPrice += 1;
-    }
-
-    const minTs = this.points[0].ts;
-    const maxTs = this.points[this.points.length - 1].ts || minTs + 1;
-    const span = maxTs - minTs || 1;
-
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#d97706';
-    ctx.beginPath();
-
-    this.points.forEach((point, idx) => {
-      const x = padding + ((point.ts - minTs) / span) * (width - padding * 2);
-      const y =
-        height -
-        padding -
-        ((point.price - minPrice) / (maxPrice - minPrice)) * (height - padding * 2);
-      if (idx === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(31, 26, 23, 0.2)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(width - padding, height - padding);
-    ctx.stroke();
-
-    ctx.fillStyle = '#5b4b43';
-    ctx.font = "12px 'Space Grotesk', sans-serif";
-    ctx.fillText(maxPrice.toFixed(2), padding + 6, padding + 12);
-    ctx.fillText(minPrice.toFixed(2), padding + 6, height - padding + 18);
+    this.chart.data.labels = this.points.map((p) =>
+      new Date(p.ts * 1000).toLocaleTimeString()
+    );
+    this.chart.data.datasets[0].data = this.points.map((p) => p.price);
+    this.chart.update();
   }
 }
