@@ -2,13 +2,23 @@
 
 Minimal FastAPI backend with a static frontend that searches a ticker, loads price history, and polls the latest price every 60 seconds.
 
-## Run (uv)
+## Run backend (uv)
 
 ```bash
 uv venv --python 3.11.9
 uv sync
 uv run uvicorn app.main:app --reload
 ```
+
+## Run frontend (Angular)
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+Open `http://localhost:4200`.
 
 Open `http://127.0.0.1:8000` in your browser.
 

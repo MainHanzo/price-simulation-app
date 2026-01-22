@@ -28,8 +28,8 @@ class PriceEngine:
         minutes_since_start = self._minutes_since_start(self.session_start_dt, self._market_open_dt())
 
         for t in tickers:
-            vol = 0.2
-            drift = 0.05
+            vol = random.uniform(0.1, 1)
+            drift = random.uniform(0.05, 0.9)
             start_price = random.uniform(80.0, 150.0)
             start_point = PricePoint(ts=self.session_start_dt.timestamp(), price=start_price)
             history = [None] * 390
