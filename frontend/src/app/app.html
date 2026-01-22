@@ -1,0 +1,51 @@
+<main class="shell">
+  <header class="hero">
+    <div>
+      <p class="kicker">Pricing Engine</p>
+      <h1>Live ticker stream</h1>
+      <p class="subtle">
+        Search a symbol, fetch the history, and watch new prices land every minute.
+      </p>
+    </div>
+    <div class="badge">
+      <span>Backend:</span>
+      <strong>FastAPI</strong>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="controls">
+      <label for="ticker-input">Ticker</label>
+      <div class="search">
+        <input
+          id="ticker-input"
+          type="text"
+          placeholder="AAPL"
+          autocomplete="off"
+          [(ngModel)]="ticker"
+          (keydown.enter)="handleSearch()"
+        />
+        <button type="button" (click)="handleSearch()">Search</button>
+      </div>
+      <p class="hint">Try AAPL, MSFT, GOOG, or TSLA.</p>
+    </div>
+
+    <div class="status">
+      <div>
+        <span class="label">Latest price</span>
+        <span class="value">{{ latestPrice }}</span>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <canvas #priceChart id="price-chart"></canvas>
+      <div class="chart-empty" *ngIf="showEmpty">
+        Search a ticker to load the price history.
+      </div>
+    </div>
+
+    <div class="status-msg" role="status" [class.error]="isError">
+      {{ statusMsg }}
+    </div>
+  </section>
+</main>
