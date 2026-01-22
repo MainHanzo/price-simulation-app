@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pricing Engine - Live Ticker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Source+Serif+4:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="kicker">Pricing Engine</p>
+          <h1>Live ticker stream</h1>
+          <p class="subtle">
+            Search a symbol, fetch the history, and watch new prices land every minute.
+          </p>
+        </div>
+        <div class="badge">
+          <span>Backend:</span>
+          <strong>FastAPI</strong>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="controls">
+          <label for="ticker-input">Ticker</label>
+          <div class="search">
+            <input id="ticker-input" type="text" placeholder="AAPL" autocomplete="off" />
+            <button id="search-btn" type="button">Search</button>
+          </div>
+          <p class="hint">Try AAPL, MSFT, GOOG, or TSLA.</p>
+        </div>
+
+        <div class="status">
+          <div>
+            <span class="label">Latest price</span>
+            <span id="latest-price" class="value">--</span>
+          </div>
+          <div>
+            <span class="label">Last update</span>
+            <span id="latest-time" class="value">--</span>
+          </div>
+          <div>
+            <span class="label">Session time (ET)</span>
+            <span id="session-time" class="value">--</span>
+          </div>
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="price-chart"></canvas>
+          <div id="chart-empty" class="chart-empty">
+            Search a ticker to load the price history.
+          </div>
+        </div>
+
+        <div id="status-msg" class="status-msg" role="status"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
