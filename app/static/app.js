@@ -4,8 +4,6 @@ const POLL_MS = 60000;
 const tickerInput = document.getElementById("ticker-input");
 const searchBtn = document.getElementById("search-btn");
 const latestPriceEl = document.getElementById("latest-price");
-const latestTimeEl = document.getElementById("latest-time");
-const sessionTimeEl = document.getElementById("session-time");
 const statusMsgEl = document.getElementById("status-msg");
 const emptyEl = document.getElementById("chart-empty");
 const canvas = document.getElementById("price-chart");
@@ -14,16 +12,6 @@ const ctx = canvas.getContext("2d");
 let pollTimer = null;
 let points = [];
 let currentTicker = "";
-
-function formatTime(ts) {
-  const date = new Date(ts * 1000);
-  return date.toLocaleTimeString();
-}
-
-function formatETTime(ts) {
-  const date = new Date(ts * 1000);
-  return date.toLocaleTimeString("en-US", { timeZone: "America/New_York" });
-}
 
 function setStatus(message, isError = false) {
   statusMsgEl.textContent = message;
@@ -113,16 +101,6 @@ async function fetchLatest(ticker) {
     points.push({ ts: data.ts, price: data.price });
   }
   latestPriceEl.textContent = data.price.toFixed(4);
-  latestTimeEl.textContent = formatTime(data.ts);
-}
-
-async function fetchSession() {
-  const res = await fetch(`${API_BASE}/api/session`);
-  if (!res.ok) {
-    throw new Error("Session info unavailable");
-  }
-  const data = await res.json();
-  sessionTimeEl.textContent = formatETTime(data.session_current_ts);
 }
 
 async function handleSearch() {
@@ -141,13 +119,11 @@ async function handleSearch() {
   try {
     await fetchHistory(currentTicker);
     await fetchLatest(currentTicker);
-    await fetchSession();
     drawChart();
     setStatus(`Streaming ${currentTicker} every 60 seconds.`);
     pollTimer = setInterval(async () => {
       try {
         await fetchLatest(currentTicker);
-        await fetchSession();
         drawChart();
       } catch (err) {
         setStatus("Polling failed. Try searching again.", true);
@@ -172,6 +148,3 @@ window.addEventListener("resize", () => {
 
 resizeCanvas();
 drawChart();
-fetchSession().catch(() => {
-  sessionTimeEl.textContent = "--";
-});

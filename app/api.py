@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Request
@@ -35,16 +34,3 @@ async def get_params(ticker: str, request: Request) -> dict:
     async with engine.lock:
         return {"volatility": engine.params[t]["volatility"], "drift": engine.params[t]["drift"]}
 
-
-@router.get("/api/session")
-async def get_session(request: Request) -> dict:
-    engine = request.app.state.engine
-    async with engine.lock:
-        session_start = engine.session_start_dt
-        session_current = session_start + timedelta(minutes=engine.minute_index)
-        return {
-            "session_start_ts": session_start.timestamp(),
-            "session_start_iso": session_start.isoformat(),
-            "session_current_ts": session_current.timestamp(),
-            "session_current_iso": session_current.isoformat(),
-        }

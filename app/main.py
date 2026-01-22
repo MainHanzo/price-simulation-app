@@ -5,12 +5,23 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import random
+from datetime import datetime, time as dt_time, timedelta
+from zoneinfo import ZoneInfo
+
 from app.api import router
 from app.engine import PriceEngine
 
+def random_market_dt() -> datetime:
+    tz = ZoneInfo("America/New_York")
+    today = datetime.now(tz=tz).date()
+    market_open = datetime.combine(today, dt_time(9, 30), tzinfo=tz)
+    offset_minutes = random.randint(0, 389)
+    return market_open + timedelta(minutes=offset_minutes)
 
+
+engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"], session_start_dt=random_market_dt())
 app = FastAPI()
-engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"])
 app.state.engine = engine
 app.include_router(router)
 
