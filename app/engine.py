@@ -25,23 +25,22 @@ class PriceEngine:
         self.ticker_params_map: Dict[str, Dict[str, float]] = {}
         self.lock = asyncio.Lock()
         self.minute_index = 0
-        MARKET_OPEN_DT = market_open_dt(simulation_dt)
-
-        self.simulation_dt = simulation_dt
-        nb_minutes = minutes_since_start(self.simulation_dt, MARKET_OPEN_DT)
+        self.simulation_dt = simulation_dt.replace(second=0, microsecond=0)
+        self.market_open_dt = market_open_dt(self.simulation_dt)
+        nb_minutes = minutes_since_start(self.simulation_dt, self.market_open_dt)
 
         for t in tickers:
             vol = random.uniform(0.1, 1)
             drift = random.uniform(0.05, 0.9)
             start_price = random.uniform(80.0, 150.0)
-            start_point = PricePoint(ts=MARKET_OPEN_DT.timestamp(), price=start_price)
+            start_point = PricePoint(ts=self.market_open_dt.timestamp(), price=start_price)
             history = [None] * CACHE_MAX_SIZE
             history[0] = start_point
             last_point = start_point
             
             # construct historical prices up to current minute
             for idx in range(1, nb_minutes + 1):
-                datetime_incremented = MARKET_OPEN_DT + timedelta(minutes=idx)
+                datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
                 next_price = self._next_price(last_point.price, vol, drift)
                 last_point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
                 history[idx] = last_point
@@ -58,7 +57,7 @@ class PriceEngine:
                 return
             print(self.minute_index)
             idx = self.minute_index
-            datetime_incremented = self.simulation_dt + timedelta(minutes=idx)
+            datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
             for t in self.tickers:
                 last = self.ticker_latest_cache[t]
                 vol = self.ticker_params_map[t]["volatility"]
