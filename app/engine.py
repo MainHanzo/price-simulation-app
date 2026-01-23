@@ -28,7 +28,7 @@ class PriceEngine:
         if client_cur_dt is None:
             self.client_cur_dt = MARKET_OPEN_DT
         else:
-            self.client_cur_dt = client_cur_dt
+            self.client_cur_dt = client_cur_dt.replace(second=0, microsecond=0)
         nb_minutes = minutes_since_start(self.client_cur_dt, MARKET_OPEN_DT)
 
         for t in tickers:
@@ -42,7 +42,7 @@ class PriceEngine:
             
             # construct historical prices up to current minute
             for idx in range(1, nb_minutes + 1):
-                datetime_incremented = self.client_cur_dt + timedelta(minutes=idx)
+                datetime_incremented = MARKET_OPEN_DT + timedelta(minutes=idx)
                 next_price = self._next_price(last_point.price, vol, drift)
                 last_point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
                 history[idx] = last_point
@@ -75,9 +75,3 @@ class PriceEngine:
         dt = 1.0 / CACHE_MAX_SIZE  # one minute of a 6.5h trading day
         z = random.gauss(0.0, 1.0)
         return last_price * math.exp((drift - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * z)
-
-    @staticmethod
-    def _session_start_dt() -> datetime:
-        tz = ZoneInfo("America/New_York")
-        now = datetime.now(tz=tz)
-        return datetime.combine(now.date(), datetime(9, 30), tzinfo=tz)

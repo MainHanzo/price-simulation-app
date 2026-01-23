@@ -1,4 +1,5 @@
 import asyncio
+import schedule
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,10 +33,14 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def start_generator() -> None:
+    def job() -> None:
+        asyncio.create_task(engine.step())
+
+    schedule.every().minute.at(":00").do(job)
+
     async def loop() -> None:
         while True:
-            await engine.step()
-            await asyncio.sleep(60)
+            schedule.run_pending()
+            await asyncio.sleep(1)
 
     asyncio.create_task(loop())
-

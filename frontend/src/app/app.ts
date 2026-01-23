@@ -25,6 +25,7 @@ export class App implements AfterViewInit, OnDestroy {
   apiBase = 'http://127.0.0.1:8000';
   ticker = '';
   latestPrice = '--';
+  latestTime = '--';
   statusMsg = '';
   isError = false;
   points: PricePoint[] = [];
@@ -113,6 +114,7 @@ export class App implements AfterViewInit, OnDestroy {
       this.points.push({ ts: data.ts, price: data.price });
     }
     this.latestPrice = data.price.toFixed(4);
+    this.latestTime = new Date(data.ts * 1000).toLocaleTimeString();
   }
 
   private initChart(): void {
