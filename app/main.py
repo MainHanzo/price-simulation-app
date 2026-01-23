@@ -1,25 +1,31 @@
 import asyncio
+import os
 import schedule
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import random
-from datetime import datetime, time as dt_time, timedelta
-from zoneinfo import ZoneInfo
-
 from app.api import router
 from app.engine import PriceEngine
 
-def random_market_dt() -> datetime:
-    tz = ZoneInfo("America/New_York")
-    today = datetime.now(tz=tz).date()
-    market_open = datetime.combine(today, dt_time(9, 30), tzinfo=tz)
-    offset_minutes = random.randint(0, 389)
-    return market_open + timedelta(minutes=offset_minutes)
+
+def parse_simulation_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo("America/New_York"))
+    return parsed
 
 
-engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"], client_cur_dt=random_market_dt())
+simulation_dt = parse_simulation_dt(os.getenv("SIMULATION_DT"))
+engine = PriceEngine(tickers=["AAPL", "MSFT", "GOOG", "TSLA"], simulation_dt=simulation_dt)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,

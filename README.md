@@ -10,6 +10,12 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
+Optional simulation datetime (ISO-8601):
+
+```bash
+SIMULATION_DT=2024-01-02T11:30:00 uv run uvicorn app.main:app --reload
+```
+
 ## Run frontend (Angular)
 
 ```bash

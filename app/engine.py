@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from app.date_helper import *
 
 
-MARKET_OPEN_DT = market_open_dt()
+
 CACHE_MAX_SIZE = 390 # number of minutes in a standard trading day
 
 @dataclass
@@ -18,18 +18,17 @@ class PricePoint:
 
 
 class PriceEngine:
-    def __init__(self, tickers: List[str], client_cur_dt: Optional[datetime] = None) -> None:
+    def __init__(self, tickers: List[str], simulation_dt: datetime = None) -> None:
         self.tickers = tickers
         self.ticker_latest_cache: Dict[str, PricePoint] = {}
         self.ticker_history_map: Dict[str, List[Optional[PricePoint]]] = {}
         self.ticker_params_map: Dict[str, Dict[str, float]] = {}
         self.lock = asyncio.Lock()
         self.minute_index = 0
-        if client_cur_dt is None:
-            self.client_cur_dt = MARKET_OPEN_DT
-        else:
-            self.client_cur_dt = client_cur_dt.replace(second=0, microsecond=0)
-        nb_minutes = minutes_since_start(self.client_cur_dt, MARKET_OPEN_DT)
+        MARKET_OPEN_DT = market_open_dt(simulation_dt)
+
+        self.simulation_dt = simulation_dt
+        nb_minutes = minutes_since_start(self.simulation_dt, MARKET_OPEN_DT)
 
         for t in tickers:
             vol = random.uniform(0.1, 1)
@@ -57,8 +56,9 @@ class PriceEngine:
         async with self.lock:
             if self.minute_index >= CACHE_MAX_SIZE:
                 return
+            print(self.minute_index)
             idx = self.minute_index
-            datetime_incremented = self.client_cur_dt + timedelta(minutes=idx)
+            datetime_incremented = self.simulation_dt + timedelta(minutes=idx)
             for t in self.tickers:
                 last = self.ticker_latest_cache[t]
                 vol = self.ticker_params_map[t]["volatility"]
@@ -68,7 +68,6 @@ class PriceEngine:
                 self.ticker_latest_cache[t] = point
                 self.ticker_history_map[t][idx] = point
             self.minute_index += 1
-            print(self.minute_index)
 
     @staticmethod
     def _next_price(last_price: float, vol: float, drift: float) -> float:

@@ -32,5 +32,18 @@ async def get_params(ticker: str, request: Request) -> dict:
     if t not in engine.ticker_params_map:
         raise HTTPException(status_code=404, detail="Unknown ticker")
     async with engine.lock:
-        return {"volatility": engine.params[t]["volatility"], "drift": engine.params[t]["drift"]}
+        return {
+            "volatility": engine.ticker_params_map[t]["volatility"],
+            "drift": engine.ticker_params_map[t]["drift"],
+        }
 
+
+@router.get("/api/config")
+async def get_config(request: Request) -> dict:
+    engine = request.app.state.engine
+    async with engine.lock:
+        simulation_dt = engine.simulation_dt
+        return {
+            "simulation_dt_iso": simulation_dt.isoformat(),
+            "simulation_dt_ts": simulation_dt.timestamp(),
+        }
