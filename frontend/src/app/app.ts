@@ -224,6 +224,10 @@ export class App implements AfterViewInit, OnDestroy {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'nearest',
+          intersect: false,
+        },
         scales: {
           x: {
             grid: {
@@ -242,6 +246,22 @@ export class App implements AfterViewInit, OnDestroy {
         plugins: {
           legend: {
             display: false,
+          },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const idx = items[0]?.dataIndex ?? 0;
+                const point = this.points[idx];
+                if (!point) {
+                  return '';
+                }
+                return new Date(point.ts * 1000).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
+              },
+              label: (item) => `Price: ${item.formattedValue}`,
+            },
           },
         },
       },
