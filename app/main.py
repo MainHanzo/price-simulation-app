@@ -1,8 +1,9 @@
 import asyncio
 import os
 import schedule
+import time as pytime
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
@@ -35,17 +36,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.state.engine = engine
+app.state.simulation_dt = simulation_dt or datetime.now(tz=ZoneInfo("America/New_York"))
+app.state.simulation_real_start = pytime.time()
+app.state.simulation_cur_dt = app.state.simulation_dt
 app.include_router(router)
 
 @app.on_event("startup")
 async def start_generator() -> None:
     def job() -> None:
+        engine.simulation_dt = app.state.simulation_cur_dt.replace(second=0, microsecond=0)
         asyncio.create_task(engine.step())
 
     schedule.every().minute.at(":00").do(job)
 
     async def loop() -> None:
         while True:
+            now_real = pytime.time()
+            elapsed = now_real - app.state.simulation_real_start
+            app.state.simulation_cur_dt = app.state.simulation_dt + timedelta(seconds=elapsed)
             schedule.run_pending()
             await asyncio.sleep(1)
 

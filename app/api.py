@@ -40,10 +40,8 @@ async def get_params(ticker: str, request: Request) -> dict:
 
 @router.get("/api/config")
 async def get_config(request: Request) -> dict:
-    engine = request.app.state.engine
-    async with engine.lock:
-        simulation_dt = engine.simulation_dt
-        return {
-            "simulation_dt_iso": simulation_dt.isoformat(),
-            "simulation_dt_ts": simulation_dt.timestamp(),
-        }
+    app_state = request.app.state
+    return {
+        "simulation_dt_iso": app_state.simulation_cur_dt.isoformat(),
+        "simulation_dt_ts": app_state.simulation_cur_dt.timestamp(),
+    }
