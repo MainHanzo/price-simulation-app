@@ -1,3 +1,4 @@
+import time as pytime
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Request
@@ -8,6 +9,11 @@ router = APIRouter()
 async def get_history(ticker: str, request: Request) -> List[dict]:
     engine = request.app.state.engine
     t = ticker.upper()
+    if t not in engine.ticker_params_map:
+        raise HTTPException(status_code=404, detail="Unknown ticker")
+    async with engine.lock:
+        if t not in engine.ticker_history_map:
+            engine._generate_history_for_ticker(t, request.app.state.simulation_cur_dt)
     if t not in engine.ticker_history_map:
         raise HTTPException(status_code=404, detail="Unknown ticker")
     async with engine.lock:
@@ -42,6 +48,8 @@ async def get_params(ticker: str, request: Request) -> dict:
 async def get_config(request: Request) -> dict:
     app_state = request.app.state
     return {
-        "simulation_dt_iso": app_state.simulation_cur_dt.isoformat(),
-        "simulation_dt_ts": app_state.simulation_cur_dt.timestamp(),
+        "simulation_start_iso": app_state.simulation_dt.isoformat(),
+        "server_now_epoch": pytime.time(),
+        "simulation_cur_dt_iso": app_state.simulation_cur_dt.isoformat(),
+        "simulation_cur_dt_ts": app_state.simulation_cur_dt.timestamp(),
     }

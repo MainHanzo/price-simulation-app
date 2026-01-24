@@ -32,3 +32,7 @@ Open `http://127.0.0.1:8000` in your browser.
 
 - Available tickers: `AAPL`, `MSFT`, `GOOG`, `TSLA`.
 - History is capped at 390 points (one trading day of 1-minute bars).
+
+## workflow
+
+server receive request from client -> server note timestamp -> server generate history of ticker requested -> server check history completeness -> history returned to client

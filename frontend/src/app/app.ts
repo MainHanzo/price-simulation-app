@@ -182,13 +182,19 @@ export class App implements AfterViewInit, OnDestroy {
       if (!res.ok) {
         return;
       }
-      const data = (await res.json()) as { simulation_dt_iso?: string };
-      if (data.simulation_dt_iso) {
-        const parsed = new Date(data.simulation_dt_iso);
+      const data = (await res.json()) as {
+        simulation_start_iso?: string;
+        server_now_epoch?: number;
+      };
+      if (data.simulation_start_iso && typeof data.server_now_epoch === 'number') {
+        const parsed = new Date(data.simulation_start_iso);
         if (!Number.isNaN(parsed.getTime())) {
-          this.simulationDtIso = data.simulation_dt_iso;
-          this.simulationBase = parsed;
-          this.simulationStartMs = Date.now();
+          const serverNowMs = data.server_now_epoch * 1000;
+          const clientNowMs = Date.now();
+          const baseMs = parsed.getTime() + (clientNowMs - serverNowMs);
+          this.simulationDtIso = data.simulation_start_iso;
+          this.simulationBase = new Date(baseMs);
+          this.simulationStartMs = clientNowMs;
         }
       }
     } catch {

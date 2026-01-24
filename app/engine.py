@@ -27,29 +27,12 @@ class PriceEngine:
         self.minute_index = 0
         self.simulation_dt = simulation_dt.replace(second=0, microsecond=0)
         self.market_open_dt = market_open_dt(self.simulation_dt)
-        nb_minutes = minutes_since_start(self.simulation_dt, self.market_open_dt)
 
         for t in tickers:
             vol = random.uniform(0.1, 1)
             drift = random.uniform(0.05, 0.9)
-            start_price = random.uniform(80.0, 150.0)
-            start_point = PricePoint(ts=self.market_open_dt.timestamp(), price=start_price)
-            history = [None] * CACHE_MAX_SIZE
-            history[0] = start_point
-            last_point = start_point
-            
-            # construct historical prices up to current minute
-            for idx in range(1, nb_minutes + 1):
-                datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
-                next_price = self._next_price(last_point.price, vol, drift)
-                last_point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
-                history[idx] = last_point
-
-            self.ticker_latest_cache[t] = last_point
-            self.ticker_history_map[t] = history
             self.ticker_params_map[t] = {"volatility": vol, "drift": drift}
-        self.minute_index = nb_minutes + 1
-        print(self.minute_index)
+
 
     async def step(self) -> None:
         async with self.lock:
@@ -73,3 +56,25 @@ class PriceEngine:
         dt = 1.0 / CACHE_MAX_SIZE  # one minute of a 6.5h trading day
         z = random.gauss(0.0, 1.0)
         return last_price * math.exp((drift - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * z)
+    
+    def _generate_history_for_ticker(self, ticker: str, simulation_cur_dt: datetime) -> None:
+        nb_minutes = minutes_since_start(self.simulation_dt, self.market_open_dt)
+
+        start_price = random.uniform(80.0, 150.0)
+        start_point = PricePoint(ts=self.market_open_dt.timestamp(), price=start_price)
+        history = [None] * CACHE_MAX_SIZE
+        history[0] = start_point
+        last_point = start_point
+        
+        # construct historical prices up to current minute
+        for idx in range(1, nb_minutes + 1):
+            datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
+            next_price = self._next_price(last_point.price, self.ticker_params_map[ticker]["volatility"], self.ticker_params_map[ticker]["drift"])
+            last_point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
+            history[idx] = last_point
+
+        self.ticker_latest_cache[ticker] = last_point
+        self.ticker_history_map[ticker] = history
+        self.ticker_nb_minutes[ticker] = nb_minutes + 1
+        return
+    
