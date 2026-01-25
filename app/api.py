@@ -11,6 +11,7 @@ async def get_history(ticker: str, request: Request) -> List[dict]:
     t = ticker.upper()
     if t not in engine.ticker_params_map:
         raise HTTPException(status_code=404, detail="Unknown ticker")
+    engine.ticker_requested.add(t)
     async with engine.lock:
         if t not in engine.ticker_history_map:
             engine._generate_history_for_ticker(t, request.app.state.simulation_cur_dt)
@@ -26,6 +27,7 @@ async def get_latest(ticker: str, request: Request) -> dict:
     t = ticker.upper()
     if t not in engine.ticker_latest_cache:
         raise HTTPException(status_code=404, detail="Unknown ticker")
+    engine.ticker_requested.add(t)
     async with engine.lock:
         p = engine.ticker_latest_cache[t]
         return {"ts": p.ts, "price": p.price}

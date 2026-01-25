@@ -88,7 +88,7 @@ export class App implements AfterViewInit, OnDestroy {
     }
 
     try {
-      const simulationNow = this.getSimulationDt();
+      const simulationNow = this.getSimulationCurDt();
       const inSession = this.isMarketOpen(simulationNow);
       await this.fetchHistory(raw);
       await this.fetchParams(raw);
@@ -101,7 +101,7 @@ export class App implements AfterViewInit, OnDestroy {
         this.setStatus(`Streaming ${raw} every 60 seconds.`, false);
         this.pollTimer = window.setInterval(async () => {
           try {
-            const now = this.getSimulationDt();
+            const now = this.getSimulationCurDt();
             if (!this.isMarketOpen(now)) {
               this.setStatus('Market closed — history only.', false);
               if (this.pollTimer) {
@@ -197,7 +197,7 @@ export class App implements AfterViewInit, OnDestroy {
     this.latestPrice = last.price.toFixed(4);
   }
 
-  private getSimulationDt(): Date {
+  private getSimulationCurDt(): Date {
     if (this.simulationBase && this.simulationStartMs !== null) {
       const elapsed = Date.now() - this.simulationStartMs;
       return new Date(this.simulationBase.getTime() + elapsed);
@@ -210,7 +210,7 @@ export class App implements AfterViewInit, OnDestroy {
       return;
     }
     const update = () => {
-      const now = this.getSimulationDt();
+      const now = this.getSimulationCurDt();
       this.currentFrontDisplay = now.toLocaleTimeString();
     };
     update();
@@ -262,16 +262,16 @@ export class App implements AfterViewInit, OnDestroy {
         return;
       }
       const data = (await res.json()) as {
-        simulation_start_iso?: string;
+        simulation_cur_dt_iso?: string;
         server_now_epoch?: number;
       };
-      if (data.simulation_start_iso && typeof data.server_now_epoch === 'number') {
-        const parsed = new Date(data.simulation_start_iso);
+      if (data.simulation_cur_dt_iso && typeof data.server_now_epoch === 'number') {
+        const parsed = new Date(data.simulation_cur_dt_iso);
         if (!Number.isNaN(parsed.getTime())) {
           const serverNowMs = data.server_now_epoch * 1000;
           const clientNowMs = Date.now();
           const baseMs = parsed.getTime() + (clientNowMs - serverNowMs);
-          this.simulationDtIso = data.simulation_start_iso;
+          this.simulationDtIso = data.simulation_cur_dt_iso;
           this.simulationBase = new Date(baseMs);
           this.simulationStartMs = clientNowMs;
         }

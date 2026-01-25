@@ -1,6 +1,7 @@
 import asyncio
 import math
 import random
+import logging
 from datetime import datetime, time, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -23,6 +24,7 @@ class PriceEngine:
         self.ticker_latest_cache: Dict[str, PricePoint] = {}
         self.ticker_history_map: Dict[str, List[Optional[PricePoint]]] = {}
         self.ticker_params_map: Dict[str, Dict[str, float]] = {}
+        self.ticker_requested: set[str] = set()
         self.lock = asyncio.Lock()
         self.minute_index = 0
         self.simulation_dt = simulation_dt.replace(second=0, microsecond=0)
@@ -41,12 +43,17 @@ class PriceEngine:
             print(self.minute_index)
             idx = self.minute_index
             datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
-            for t in self.tickers:
+            for t in self.ticker_requested:
+                if t not in self.ticker_latest_cache:
+                    self._generate_history_for_ticker(t, self.simulation_dt)
+                    if t not in self.ticker_latest_cache:
+                        continue
                 last = self.ticker_latest_cache[t]
                 vol = self.ticker_params_map[t]["volatility"]
                 drift = self.ticker_params_map[t]["drift"]
                 next_price = self._next_price(last.price, vol, drift)
                 point = PricePoint(ts=datetime_incremented.timestamp(), price=next_price)
+                logging.info("Generated price for %s at %s: %.2f", t, datetime_incremented.isoformat(), next_price)
                 self.ticker_latest_cache[t] = point
                 self.ticker_history_map[t][idx] = point
             self.minute_index += 1
@@ -58,7 +65,7 @@ class PriceEngine:
         return last_price * math.exp((drift - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * z)
     
     def _generate_history_for_ticker(self, ticker: str, simulation_cur_dt: datetime) -> None:
-        nb_minutes = minutes_since_start(self.simulation_dt, self.market_open_dt)
+        nb_minutes = minutes_since_start(simulation_cur_dt, self.market_open_dt)
 
         start_price = random.uniform(80.0, 150.0)
         start_point = PricePoint(ts=self.market_open_dt.timestamp(), price=start_price)
@@ -75,6 +82,6 @@ class PriceEngine:
 
         self.ticker_latest_cache[ticker] = last_point
         self.ticker_history_map[ticker] = history
-        # self.ticker_nb_minutes[ticker] = nb_minutes + 1
+        self.minute_index = nb_minutes + 1
         return
     

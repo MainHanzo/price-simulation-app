@@ -1,6 +1,5 @@
 import asyncio
 import os
-import schedule
 import time as pytime
 
 from datetime import datetime, timedelta
@@ -46,17 +45,16 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def start_generator() -> None:
-    def job() -> None:
-        asyncio.create_task(engine.step())
-
-    schedule.every().minute.at(":00").do(job)
-
     async def loop() -> None:
+        last_minute = None
         while True:
             now_real = pytime.time()
             elapsed = now_real - app.state.simulation_real_start
             app.state.simulation_cur_dt = app.state.simulation_dt + timedelta(seconds=elapsed)
-            schedule.run_pending()
-            await asyncio.sleep(1)
+            current_minute = app.state.simulation_cur_dt.replace(second=0, microsecond=0)
+            if last_minute is None or current_minute > last_minute:
+                last_minute = current_minute
+                asyncio.create_task(engine.step())
+            await asyncio.sleep(0.5)
 
     asyncio.create_task(loop())
