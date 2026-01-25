@@ -2,7 +2,7 @@ import asyncio
 import os
 import time as pytime
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
@@ -54,7 +54,8 @@ async def start_generator() -> None:
             current_minute = app.state.simulation_cur_dt.replace(second=0, microsecond=0)
             if last_minute is None or current_minute > last_minute:
                 last_minute = current_minute
-                asyncio.create_task(engine.step())
+                if app.state.simulation_cur_dt.time() < time(16, 0):
+                    asyncio.create_task(engine.step())
             await asyncio.sleep(0.5)
 
     asyncio.create_task(loop())

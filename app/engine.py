@@ -66,6 +66,9 @@ class PriceEngine:
     
     def _generate_history_for_ticker(self, ticker: str, simulation_cur_dt: datetime) -> None:
         nb_minutes = minutes_since_start(simulation_cur_dt, self.market_open_dt)
+        if nb_minutes >= 390:
+            nb_minutes = 389
+        print(nb_minutes)
 
         start_price = random.uniform(80.0, 150.0)
         start_point = PricePoint(ts=self.market_open_dt.timestamp(), price=start_price)
