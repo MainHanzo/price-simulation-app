@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Chart } from 'chart.js/auto';
+import { io, Socket } from 'socket.io-client';
 
 type PricePoint = {
   ts: number;
@@ -40,11 +41,12 @@ export class App implements AfterViewInit, OnDestroy {
   points: PricePoint[] = [];
   showEmpty = true;
 
-  private pollTimer: number | null = null;
   private chart: Chart | null = null;
   private clockTimer: number | null = null;
   private simulationBase: Date | null = null;
   private simulationStartMs: number | null = null;
+  private socket: Socket | null = null;
+  private socketTicker: string | null = null;
 
   @ViewChild('priceChart', { static: true })
   canvasRef!: ElementRef<HTMLCanvasElement>;
@@ -62,14 +64,15 @@ export class App implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.pollTimer) {
-      window.clearInterval(this.pollTimer);
-    }
     if (this.clockTimer) {
       window.clearInterval(this.clockTimer);
     }
     if (this.chart) {
       this.chart.destroy();
+    }
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
     }
   }
 
@@ -83,9 +86,7 @@ export class App implements AfterViewInit, OnDestroy {
     this.ticker = raw;
     this.setStatus('Loading history...', false);
 
-    if (this.pollTimer) {
-      window.clearInterval(this.pollTimer);
-    }
+    this.cleanupSocketSubscription();
 
     try {
       const simulationNow = this.getSimulationCurDt();
@@ -93,32 +94,12 @@ export class App implements AfterViewInit, OnDestroy {
       await this.fetchHistory(raw);
       await this.fetchParams(raw);
       if (inSession) {
-        await this.fetchLatest(raw);
-        this.latestTime = simulationNow.toLocaleTimeString();
+        await this.connectSocket(raw);
       }
       this.updateChart();
       if (inSession) {
-        this.setStatus(`Streaming ${raw} every 60 seconds.`, false);
-        this.pollTimer = window.setInterval(async () => {
-          try {
-            const now = this.getSimulationCurDt();
-            if (!this.isMarketOpen(now)) {
-              this.setStatus('Market closed — history only.', false);
-              if (this.pollTimer) {
-                window.clearInterval(this.pollTimer);
-                this.pollTimer = null;
-              }
-              return;
-            }
-            await this.fetchLatest(raw);
-            this.latestTime = now.toLocaleTimeString();
-            this.updateChart();
-          } catch {
-            this.setStatus('Polling failed. Try searching again.', true);
-          }
-        }, 60000);
+        this.setStatus(`Streaming ${raw} live.`, false);
       } else {
-        this.latestTime = simulationNow.toLocaleTimeString();
         this.setStatus('Market closed — history only.', false);
       }
     } catch {
@@ -139,19 +120,6 @@ export class App implements AfterViewInit, OnDestroy {
     const data = (await res.json()) as PricePoint[];
     this.points = data.map((item) => ({ ts: item.ts, price: item.price }));
     this.setLatestFromPoints();
-  }
-
-  private async fetchLatest(ticker: string): Promise<void> {
-    const res = await fetch(`${this.apiBase}/api/latest/${ticker}`);
-    if (!res.ok) {
-      throw new Error('Ticker not found');
-    }
-    const data = (await res.json()) as PricePoint;
-    const last = this.points[this.points.length - 1];
-    if (!last || data.ts > last.ts) {
-      this.points.push({ ts: data.ts, price: data.price });
-    }
-    this.latestPrice = data.price.toFixed(4);
   }
 
   private async fetchParams(ticker: string): Promise<void> {
@@ -195,6 +163,7 @@ export class App implements AfterViewInit, OnDestroy {
       return;
     }
     this.latestPrice = last.price.toFixed(4);
+    this.latestTime = new Date(last.ts * 1000).toLocaleTimeString();
   }
 
   private getSimulationCurDt(): Date {
@@ -215,6 +184,60 @@ export class App implements AfterViewInit, OnDestroy {
     };
     update();
     this.clockTimer = window.setInterval(update, 1000);
+  }
+
+  private setupSocket(): void {
+    if (this.socket) {
+      return;
+    }
+    this.socket = io(this.apiBase, {
+      transports: ['websocket'],
+    });
+    this.socket.on('price_update', (payload: { ticker: string; ts: number; price: number }) => {
+      if (!payload || payload.ticker !== this.ticker) {
+        return;
+      }
+      const last = this.points[this.points.length - 1];
+      if (!last || payload.ts > last.ts) {
+        this.points.push({ ts: payload.ts, price: payload.price });
+        this.latestPrice = payload.price.toFixed(4);
+        this.latestTime = new Date(payload.ts * 1000).toLocaleTimeString();
+        this.updateChart();
+      }
+    });
+    this.socket.on(
+      'params_update',
+      (payload: { ticker: string; volatility: number; drift: number }) => {
+        if (!payload || payload.ticker !== this.ticker) {
+          return;
+        }
+        this.volatility = payload.volatility.toString();
+        this.drift = payload.drift.toString();
+      }
+    );
+    this.socket.on('connect_error', () => {
+      this.setStatus('Socket connection failed.', true);
+    });
+  }
+
+  private async connectSocket(ticker: string): Promise<void> {
+    this.setupSocket();
+    if (!this.socket) {
+      return;
+    }
+    if (this.socketTicker && this.socketTicker !== ticker) {
+      this.socket.emit('unsubscribe', { ticker: this.socketTicker });
+    }
+    this.socketTicker = ticker;
+    this.socket.emit('subscribe', { ticker });
+  }
+
+  private cleanupSocketSubscription(): void {
+    if (!this.socket || !this.socketTicker) {
+      return;
+    }
+    this.socket.emit('unsubscribe', { ticker: this.socketTicker });
+    this.socketTicker = null;
   }
 
   startOverlayDrag(event: MouseEvent): void {

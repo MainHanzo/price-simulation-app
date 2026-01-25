@@ -36,10 +36,11 @@ class PriceEngine:
             self.ticker_params_map[t] = {"volatility": vol, "drift": drift}
 
 
-    async def step(self) -> None:
+    async def step(self) -> List[dict]:
         async with self.lock:
+            updates: List[dict] = []
             if self.minute_index >= CACHE_MAX_SIZE:
-                return
+                return updates
             print(self.minute_index)
             idx = self.minute_index
             datetime_incremented = self.market_open_dt + timedelta(minutes=idx)
@@ -56,7 +57,9 @@ class PriceEngine:
                 logging.info("Generated price for %s at %s: %.2f", t, datetime_incremented.isoformat(), next_price)
                 self.ticker_latest_cache[t] = point
                 self.ticker_history_map[t][idx] = point
+                updates.append({"ticker": t, "ts": point.ts, "price": point.price})
             self.minute_index += 1
+            return updates
 
     @staticmethod
     def _next_price(last_price: float, vol: float, drift: float) -> float:

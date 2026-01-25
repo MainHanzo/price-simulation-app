@@ -59,6 +59,12 @@ async def update_params(ticker: str, payload: dict, request: Request) -> dict:
     async with engine.lock:
         engine.ticker_params_map[t]["volatility"] = vol
         engine.ticker_params_map[t]["drift"] = drift
+    sio = getattr(request.app.state, "sio", None)
+    if sio is not None:
+        await sio.emit(
+            "params_update",
+            {"ticker": t, "volatility": vol, "drift": drift},
+        )
     return {"volatility": vol, "drift": drift}
 
 
