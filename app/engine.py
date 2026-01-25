@@ -75,6 +75,6 @@ class PriceEngine:
 
         self.ticker_latest_cache[ticker] = last_point
         self.ticker_history_map[ticker] = history
-        self.ticker_nb_minutes[ticker] = nb_minutes + 1
+        # self.ticker_nb_minutes[ticker] = nb_minutes + 1
         return
     
