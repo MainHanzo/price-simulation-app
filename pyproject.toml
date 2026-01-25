@@ -5,6 +5,8 @@ description = "Minimal pricing engine demo"
 requires-python = "==3.11.9"
 dependencies = [
   "fastapi==0.112.0",
+  "pip>=25.3",
+  "pytest>=9.0.2",
   "schedule==1.2.2",
   "uvicorn[standard]==0.30.5",
 ]
