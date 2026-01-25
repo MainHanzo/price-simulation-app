@@ -46,6 +46,27 @@
       <div class="chart-empty" *ngIf="showEmpty">
         Search a ticker to load the price history.
       </div>
+      <div
+        class="params-overlay"
+        *ngIf="paramsReady"
+        [style.left.px]="overlayPos.x"
+        [style.top.px]="overlayPos.y"
+        [style.width.px]="overlaySize.width"
+        [style.height.px]="overlaySize.height"
+      >
+        <div class="overlay-handle" (mousedown)="startOverlayDrag($event)">
+          Drag
+        </div>
+        <div class="param-row">
+          <span class="param-label">Volatility</span>
+          <input type="number" step="0.01" [(ngModel)]="volatility" />
+        </div>
+        <div class="param-row">
+          <span class="param-label">Drift</span>
+          <input type="number" step="0.01" [(ngModel)]="drift" />
+        </div>
+        <button type="button" (click)="updateParams()">Update</button>
+      </div>
     </div>
 
     <div class="status-msg" role="status" [class.error]="isError">

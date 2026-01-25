@@ -30,6 +30,13 @@ export class App implements AfterViewInit, OnDestroy {
   currentFrontDisplay = '--';
   statusMsg = '';
   isError = false;
+  volatility = '';
+  drift = '';
+  paramsReady = false;
+  overlayPos = { x: 14, y: 14 };
+  overlaySize = { width: 200, height: 160 };
+  private isDraggingOverlay = false;
+  private overlayDragOffset = { x: 0, y: 0 };
   points: PricePoint[] = [];
   showEmpty = true;
 
@@ -84,6 +91,7 @@ export class App implements AfterViewInit, OnDestroy {
       const simulationNow = this.getSimulationDt();
       const inSession = this.isMarketOpen(simulationNow);
       await this.fetchHistory(raw);
+      await this.fetchParams(raw);
       if (inSession) {
         await this.fetchLatest(raw);
         this.latestTime = simulationNow.toLocaleTimeString();
@@ -146,6 +154,39 @@ export class App implements AfterViewInit, OnDestroy {
     this.latestPrice = data.price.toFixed(4);
   }
 
+  private async fetchParams(ticker: string): Promise<void> {
+    const res = await fetch(`${this.apiBase}/api/params/${ticker}`);
+    if (!res.ok) {
+      throw new Error('Params unavailable');
+    }
+    const data = (await res.json()) as { volatility: number; drift: number };
+    this.volatility = data.volatility.toString();
+    this.drift = data.drift.toString();
+    this.paramsReady = true;
+  }
+
+  async updateParams(): Promise<void> {
+    if (!this.ticker) {
+      return;
+    }
+    const res = await fetch(`${this.apiBase}/api/params/${this.ticker}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        volatility: this.volatility,
+        drift: this.drift,
+      }),
+    });
+    if (!res.ok) {
+      this.setStatus('Failed to update params.', true);
+      return;
+    }
+    const data = (await res.json()) as { volatility: number; drift: number };
+    this.volatility = data.volatility.toString();
+    this.drift = data.drift.toString();
+    this.setStatus('Params updated.', false);
+  }
+
   private setLatestFromPoints(): void {
     const last = this.points[this.points.length - 1];
     if (!last) {
@@ -174,6 +215,44 @@ export class App implements AfterViewInit, OnDestroy {
     };
     update();
     this.clockTimer = window.setInterval(update, 1000);
+  }
+
+  startOverlayDrag(event: MouseEvent): void {
+    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+    this.isDraggingOverlay = true;
+    this.overlayDragOffset = {
+      x: event.clientX - rect.left - this.overlayPos.x,
+      y: event.clientY - rect.top - this.overlayPos.y,
+    };
+  }
+
+  stopOverlayDrag(): void {
+    this.isDraggingOverlay = false;
+  }
+
+  onOverlayDrag(event: MouseEvent): void {
+    if (!this.isDraggingOverlay) {
+      return;
+    }
+    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+    const nextX = event.clientX - rect.left - this.overlayDragOffset.x;
+    const nextY = event.clientY - rect.top - this.overlayDragOffset.y;
+    const maxX = Math.max(0, rect.width - this.overlaySize.width);
+    const maxY = Math.max(0, rect.height - this.overlaySize.height);
+    this.overlayPos = {
+      x: Math.min(Math.max(0, nextX), maxX),
+      y: Math.min(Math.max(0, nextY), maxY),
+    };
+  }
+
+  @HostListener('window:mousemove', ['$event'])
+  onWindowMouseMove(event: MouseEvent): void {
+    this.onOverlayDrag(event);
+  }
+
+  @HostListener('window:mouseup')
+  onWindowMouseUp(): void {
+    this.stopOverlayDrag();
   }
 
   private async loadSimulationDt(): Promise<void> {

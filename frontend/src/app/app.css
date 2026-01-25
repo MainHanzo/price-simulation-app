@@ -12,3 +12,55 @@
   align-items: flex-end;
   text-align: right;
 }
+
+.params-overlay {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  width: 200px;
+  height: 160px;
+  box-shadow: 0 10px 24px rgba(67, 45, 21, 0.12);
+}
+
+.overlay-handle {
+  cursor: grab;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  user-select: none;
+}
+
+.overlay-handle:active {
+  cursor: grabbing;
+}
+
+.param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.param-row input {
+  width: 80px;
+  border-radius: 8px;
+  border: 1px solid var(--stroke);
+  padding: 6px 8px;
+  font-family: inherit;
+}
+
+.params-overlay button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}

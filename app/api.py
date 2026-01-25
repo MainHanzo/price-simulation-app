@@ -44,6 +44,22 @@ async def get_params(ticker: str, request: Request) -> dict:
         }
 
 
+@router.post("/api/params/{ticker}")
+async def update_params(ticker: str, payload: dict, request: Request) -> dict:
+    engine = request.app.state.engine
+    t = ticker.upper()
+    if t not in engine.ticker_params_map:
+        raise HTTPException(status_code=404, detail="Unknown ticker")
+    if "volatility" not in payload or "drift" not in payload:
+        raise HTTPException(status_code=400, detail="Missing volatility or drift")
+    vol = float(payload["volatility"])
+    drift = float(payload["drift"])
+    async with engine.lock:
+        engine.ticker_params_map[t]["volatility"] = vol
+        engine.ticker_params_map[t]["drift"] = drift
+    return {"volatility": vol, "drift": drift}
+
+
 @router.get("/api/config")
 async def get_config(request: Request) -> dict:
     app_state = request.app.state
