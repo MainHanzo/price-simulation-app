@@ -38,11 +38,11 @@ def test_api_history_latest_params_config():
     params = res.json()
     assert "volatility" in params and "drift" in params
 
-    # res = client.post("/api/params/AAPL", json={"volatility": 0.33, "drift": 0.12})
-    # assert res.status_code == 200
-    # updated = res.json()
-    # assert updated["volatility"] == 0.33
-    # assert updated["drift"] == 0.12
+    res = client.post("/api/params/AAPL", json={"volatility": 0.33, "drift": 0.12})
+    assert res.status_code == 200
+    updated = res.json()
+    assert updated["volatility"] == 0.33
+    assert updated["drift"] == 0.12
 
     res = client.get("/api/config")
     assert res.status_code == 200
