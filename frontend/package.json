@@ -5,6 +5,7 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
+    "test:browser": "node --test tests/orderbook.browser.test.mjs",
     "watch": "ng build --watch --configuration development"
   },
   "private": true,

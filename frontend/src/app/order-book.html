@@ -1,0 +1,28 @@
+<section class="order-book" aria-label="Live order book">
+  <header class="book-heading">
+    <div><p class="eyebrow">Market depth</p><h2>Live order book</h2></div>
+    <strong class="book-symbol">{{ state.ticker || '—' }}</strong>
+  </header>
+  <p class="book-status" role="status" [class.warning]="state.status === 'stale' || state.status === 'unavailable'">
+    <span class="status-dot" [class.live]="state.status === 'live' && state.snapshot?.session_status === 'open'"></span>{{ statusLabel }}
+  </p>
+  <ng-container *ngIf="state.snapshot as book; else empty">
+    <div class="book-columns"><span>Price (USD)</span><span>Quantity</span><span>Cumulative</span></div>
+    <div class="side-label ask-label">Asks · sell interest</div>
+    <div class="level ask" data-side="ask" *ngFor="let level of asks">
+      <span class="depth" [style.width.%]="depth(level, 'asks')"></span>
+      <span class="level-price">{{ level.price | number:'1.2-2':'en-US' }}</span><span>{{ level.quantity | number:'1.0-0':'en-US' }}</span><span>{{ level.cumulative_quantity | number:'1.0-0':'en-US' }}</span>
+    </div>
+    <div class="reference-row">
+      <div><span class="reference-label">Reference price</span><strong>{{ book.reference_price | number:'1.4-4':'en-US' }}</strong></div>
+      <div class="spread"><span>Spread</span><strong>{{ spread | number:'1.2-2':'en-US' }}</strong></div>
+    </div>
+    <div class="side-label bid-label">Bids · buy interest</div>
+    <div class="level bid" data-side="bid" *ngFor="let level of book.bids">
+      <span class="depth" [style.width.%]="depth(level, 'bids')"></span>
+      <span class="level-price">{{ level.price | number:'1.2-2':'en-US' }}</span><span>{{ level.quantity | number:'1.0-0':'en-US' }}</span><span>{{ level.cumulative_quantity | number:'1.0-0':'en-US' }}</span>
+    </div>
+    <footer class="book-footnote">Snapshot {{ time(book.ts) }} New York<br>Simulated liquidity · 10 levels per side</footer>
+  </ng-container>
+  <ng-template #empty><p class="book-empty">{{ state.status === 'loading' ? 'Loading the latest depth…' : state.status === 'unavailable' ? 'Order book unavailable. Search a valid symbol to retry.' : 'Search a ticker to explore simulated market depth.' }}</p></ng-template>
+</section>

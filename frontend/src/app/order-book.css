@@ -1,0 +1,28 @@
+:host { display: block; min-width: 0; }
+.order-book { border: 1px solid var(--stroke); border-radius: 18px; padding: 18px 14px 14px; background: rgba(255,255,255,.55); }
+.book-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.eyebrow { margin: 0 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .13em; font-size: .65rem; }
+h2 { margin: 0; font-size: 1.1rem; }
+.book-symbol { color: var(--accent-dark); font-size: .85rem; }
+.book-status { display: flex; align-items: center; gap: 7px; font-size: .76rem; color: var(--muted); margin: 12px 0 15px; min-height: 16px; }
+.book-status.warning { color: #9a3412; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #ad8b69; }
+.status-dot.live { background: #267453; box-shadow: 0 0 0 3px #26745314; }
+.book-columns, .level { display: grid; grid-template-columns: 1fr .9fr 1.1fr; gap: 8px; text-align: right; }
+.book-columns span:first-child, .level span.level-price { text-align: left; }
+.book-columns { color: var(--muted); font-size: .65rem; padding-bottom: 7px; border-bottom: 1px solid var(--stroke); }
+.side-label { text-transform: uppercase; font-size: .6rem; letter-spacing: .09em; padding: 9px 0 5px; }
+.ask-label, .ask .level-price { color: #a33d36; }
+.bid-label, .bid .level-price { color: #226949; }
+.level { position: relative; padding: 3px 4px; font-size: .73rem; font-variant-numeric: tabular-nums; }
+.level > span:not(.depth) { position: relative; z-index: 1; }
+.depth { position: absolute; top: 1px; bottom: 1px; right: 0; max-width: 100%; border-radius: 2px; }
+.ask .depth { background: #c2584a13; }
+.bid .depth { background: #2d805d16; }
+.reference-row { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--stroke); border-bottom: 1px solid var(--stroke); padding: 11px 4px; margin-top: 9px; }
+.reference-row span { display: block; color: var(--muted); font-size: .6rem; margin-bottom: 4px; }
+.reference-row strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.spread { text-align: right; }
+.spread strong { font-size: .85rem; }
+.book-footnote { font-size: .6rem; line-height: 1.6; color: var(--muted); margin-top: 13px; padding-top: 10px; border-top: 1px solid var(--stroke); }
+.book-empty { color: var(--muted); font-size: .85rem; line-height: 1.6; min-height: 160px; display: grid; align-items: center; }

@@ -4,11 +4,11 @@
       <p class="kicker">Pricing Engine</p>
       <h1>Live ticker stream</h1>
       <p class="subtle">
-        Search a symbol, fetch the history, and watch new prices land every minute.
+        Follow simulated prices and explore live market depth, one symbol at a time.
       </p>
     </div>
     <div class="badge">
-      <span>Current time</span>
+      <span>New York time</span>
       <strong>{{ currentFrontDisplay }}</strong>
     </div>
   </header>
@@ -41,8 +41,9 @@
       </div>
     </div>
 
+    <div class="market-layout">
     <div class="chart-wrap">
-      <canvas #priceChart id="price-chart"></canvas>
+      <canvas #priceChart id="price-chart" [attr.aria-label]="chartDescription" role="img"></canvas>
       <div class="chart-empty" *ngIf="showEmpty">
         Search a ticker to load the price history.
       </div>
@@ -58,15 +59,17 @@
           Drag
         </div>
         <div class="param-row">
-          <span class="param-label">Volatility</span>
-          <input type="number" step="0.01" [(ngModel)]="volatility" />
+          <label for="volatility" class="param-label">Volatility</label>
+          <input id="volatility" type="number" step="0.01" [(ngModel)]="volatility" />
         </div>
         <div class="param-row">
-          <span class="param-label">Drift</span>
-          <input type="number" step="0.01" [(ngModel)]="drift" />
+          <label for="drift" class="param-label">Drift</label>
+          <input id="drift" type="number" step="0.01" [(ngModel)]="drift" />
         </div>
         <button type="button" (click)="updateParams()">Update</button>
       </div>
+    </div>
+    <app-order-book [state]="bookState" />
     </div>
 
     <div class="status-msg" role="status" [class.error]="isError">

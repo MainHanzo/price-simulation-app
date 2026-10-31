@@ -2,6 +2,26 @@
   color: #b91c1c;
 }
 
+.market-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  align-items: start;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+.market-layout .chart-wrap { margin-top: 0; min-width: 0; height: 540px; }
+.market-layout #price-chart { height: 100%; max-width: 100%; }
+
+@media (max-width: 900px) {
+  .market-layout { grid-template-columns: minmax(0, 1fr); }
+  .market-layout .chart-wrap { height: 360px; }
+}
+
+@media (max-width: 500px) {
+  .align-right { align-items: flex-start; text-align: left; }
+}
+
 .stat-block {
   display: flex;
   flex-direction: column;

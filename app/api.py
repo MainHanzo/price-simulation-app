@@ -1,9 +1,58 @@
 import time as pytime
+import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
+
+
+async def ensure_book(ticker: str, request: Request) -> str:
+    engine = request.app.state.engine
+    t = ticker.upper()
+    if t not in engine.ticker_params_map:
+        raise HTTPException(status_code=404, detail="Unknown ticker")
+    async with engine.lock:
+        engine.ticker_requested.add(t)
+        if t not in engine.ticker_latest_cache:
+            engine._generate_history_for_ticker(t, request.app.state.simulation_cur_dt)
+        if t not in request.app.state.orderbook.snapshots:
+            point = engine.ticker_latest_cache[t]
+            request.app.state.orderbook.update(t, point.price, point.ts, request.app.state.simulation_cur_dt)
+    return t
+
+
+@router.get("/api/orderbook/{ticker}")
+async def get_orderbook(ticker: str, request: Request) -> dict:
+    t = await ensure_book(ticker, request)
+    return request.app.state.orderbook.snapshots[t].to_dict()
+
+
+@router.get("/api/orderbook/{ticker}/stream")
+async def stream_orderbook(ticker: str, request: Request) -> StreamingResponse:
+    t = await ensure_book(ticker, request)
+
+    async def events() -> AsyncIterator[str]:
+        last_sequence = None
+        last_sent = pytime.monotonic()
+        while not await request.is_disconnected():
+            snapshot = request.app.state.orderbook.snapshots[t]
+            if snapshot.sequence != last_sequence:
+                last_sequence = snapshot.sequence
+                last_sent = pytime.monotonic()
+                yield f"id: {snapshot.sequence}\ndata: {json.dumps(snapshot.to_dict())}\n\n"
+            elif pytime.monotonic() - last_sent >= 2:
+                last_sent = pytime.monotonic()
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @router.get("/api/history/{ticker}")
 async def get_history(ticker: str, request: Request) -> List[dict]:

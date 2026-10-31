@@ -22,7 +22,7 @@ body {
 }
 
 .shell {
-  max-width: 1000px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 36px 20px 64px;
 }
@@ -86,6 +86,7 @@ body {
 
 .search input {
   flex: 1;
+  min-width: 0;
   border-radius: 12px;
   border: 1px solid var(--stroke);
   padding: 12px 14px;
