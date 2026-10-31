@@ -200,3 +200,49 @@ test('new ticker wins over slow search and parameter changes use selected symbol
     assert.equal(await page.locator('[data-side="bid"]').count(), 0);
   } finally { await context.close(); }
 });
+
+test('hosted base path uses same-origin prefixed APIs and session cookies for fetch and SSE', async () => {
+  const origin = new URL(base).origin;
+  const prefix = '/price-generator';
+  const requests = [];
+  const context = await browser.newContext();
+  await context.addCookies([{ name: 'host_session', value: 'authenticated-fixture', url: `${origin}${prefix}/`, httpOnly: true }]);
+  const page = await context.newPage();
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.includes('/api/')) {
+      const parts = url.pathname.split('/api/')[1].split('/');
+      requests.push({ url: url.href, cookie: request.headers()['cookie'] || '', method: request.method() });
+      const headers = { 'access-control-allow-origin': '*' };
+      if (parts[0] === 'config') return route.fulfill({ headers, json: { simulation_cur_dt_iso: '2026-10-31T11:00:00-04:00', server_now_epoch: Date.now() / 1000 } });
+      if (parts[0] === 'history') return route.fulfill({ headers, json: [{ ts: 1793458740, price: 99 }] });
+      if (parts[0] === 'params') return route.fulfill({ headers, json: { volatility: .2, drift: .05 } });
+      if (parts[0] === 'orderbook' && parts[2] === 'stream') return route.fulfill({ headers: { ...headers, 'content-type': 'text/event-stream' }, body: `data: ${JSON.stringify(snapshot('AAPL', 2, 'open', 101))}\n\n` });
+      if (parts[0] === 'orderbook') return route.fulfill({ headers, json: snapshot() });
+      return route.abort();
+    }
+    if (url.origin === origin && url.pathname.startsWith(`${prefix}/`)) {
+      const upstream = new URL(url.href);
+      upstream.pathname = upstream.pathname.slice(prefix.length);
+      const response = await route.fetch({ url: upstream.href });
+      if (request.isNavigationRequest()) {
+        const body = (await response.text()).replace('<base href="/">', `<base href="${prefix}/">`);
+        return route.fulfill({ response, body });
+      }
+      return route.fulfill({ response });
+    }
+    return route.continue();
+  });
+  try {
+    await page.goto(`${origin}${prefix}/`);
+    await search(page, 'AAPL');
+    await waitText(page.getByRole('region', { name: 'Live order book' }), '101.0000');
+    await page.getByRole('button', { name: 'Update', exact: true }).click();
+    await waitText(page.locator('.status-msg'), 'Params updated');
+    assert.ok(requests.some(({ url }) => url.endsWith('/api/orderbook/AAPL/stream')));
+    assert.ok(requests.some(({ method }) => method === 'POST'));
+    assert.ok(requests.every(({ url }) => url.startsWith(`${origin}${prefix}/api/`)), `Hosted API requests must retain their origin and prefix: ${JSON.stringify(requests.map(({ url }) => url))}`);
+    assert.ok(requests.every(({ cookie }) => cookie.includes('host_session=authenticated-fixture')), 'same-origin fetch and SSE include the session cookie by default');
+  } finally { await context.close(); }
+});

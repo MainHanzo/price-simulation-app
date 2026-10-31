@@ -56,3 +56,7 @@ npm run build
 The API acceptance suite launches real backend processes on temporary local ports. It covers shared state, streaming and reconnects, initialization, session transitions, minute-price alignment, and unsupported symbols.
 
 With both development servers running, use `npm run test:browser` from `frontend/` for browser acceptance checks. See [browser test setup](frontend/tests/README.md) for Playwright/Chrome requirements and environment options.
+
+## Hosted deployment
+
+The simulator is hosted at [Price Generator](https://d1duii6i44ll6h.cloudfront.net/price-generator/) with the existing ticker-info sign-in. Hosted builds use the `/price-generator/` base path and same-origin API/stream requests. The production entrypoint is `app.hosted:application`; local development continues to use `app.main:app`. See [deployment and rollback instructions](deploy/README.md).

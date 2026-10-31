@@ -13,6 +13,7 @@ import { Subscription } from 'rxjs';
 import { OrderBook } from './order-book';
 import { OrderBookService } from './order-book.service';
 import { OrderBookSnapshot, OrderBookState } from './order-book.types';
+import { getApiBase } from './api-base';
 
 type PricePoint = {
   ts: number;
@@ -26,7 +27,7 @@ type PricePoint = {
   styleUrl: './app.css',
 })
 export class App implements AfterViewInit, OnDestroy {
-  apiBase = 'http://127.0.0.1:8000';
+  apiBase = getApiBase();
   ticker = '';
   selectedTicker = '';
   bookState: OrderBookState = { ticker: '', status: 'idle', snapshot: null };

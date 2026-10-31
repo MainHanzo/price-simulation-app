@@ -14,7 +14,11 @@ import pytest
 
 
 @contextmanager
-def running_server(simulation_dt: str | None) -> Iterator[httpx.Client]:
+def running_server(
+    simulation_dt: str | None,
+    entrypoint: str = "app.main:app",
+    extra_env: dict[str, str] | None = None,
+) -> Iterator[httpx.Client]:
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
@@ -22,8 +26,9 @@ def running_server(simulation_dt: str | None) -> Iterator[httpx.Client]:
     env.pop("SIMULATION_DT", None)
     if simulation_dt is not None:
         env["SIMULATION_DT"] = simulation_dt
+    env.update(extra_env or {})
     with subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
+        [sys.executable, "-m", "uvicorn", entrypoint, "--host", "127.0.0.1", "--port", str(port)],
         cwd=Path(__file__).resolve().parents[2],
         env=env,
         stdout=subprocess.DEVNULL,
@@ -37,7 +42,8 @@ def running_server(simulation_dt: str | None) -> Iterator[httpx.Client]:
                     if process.poll() is not None:
                         pytest.fail(f"Server exited during startup: {process.stderr.read() if process.stderr else ''}")
                     try:
-                        if client.get("/api/config").status_code == 200:
+                        ready_path = f"{env.get('BASE_PATH', '')}/health" if entrypoint == "app.hosted:application" else "/api/config"
+                        if client.get(ready_path).status_code == 200:
                             break
                     except httpx.TransportError:
                         pass

@@ -1,9 +1,11 @@
 import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { OrderBookSnapshot, OrderBookState } from './order-book.types';
+import { getApiBase } from './api-base';
 
 @Injectable({ providedIn: 'root' })
 export class OrderBookService implements OnDestroy {
+  private readonly apiBase = getApiBase();
   private readonly subject = new BehaviorSubject<OrderBookState>({ ticker: '', status: 'idle', snapshot: null });
   readonly state$ = this.subject.asObservable();
   private source: EventSource | null = null;
@@ -22,13 +24,13 @@ export class OrderBookService implements OnDestroy {
     const controller = new AbortController();
     this.abort = controller;
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/orderbook/${encodeURIComponent(ticker)}`, { signal: controller.signal });
+      const response = await fetch(`${this.apiBase}/api/orderbook/${encodeURIComponent(ticker)}`, { signal: controller.signal });
       if (!response.ok) throw new Error('Order book unavailable');
       const snapshot = await response.json() as OrderBookSnapshot;
       if (generation !== this.generation) return;
       this.accept(snapshot, ticker);
       this.staleTimer = window.setInterval(() => this.zone.run(() => this.checkStale()), 250);
-      const source = new EventSource(`http://127.0.0.1:8000/api/orderbook/${encodeURIComponent(ticker)}/stream`);
+      const source = new EventSource(`${this.apiBase}/api/orderbook/${encodeURIComponent(ticker)}/stream`);
       this.source = source;
       source.onopen = () => {
         if (generation === this.generation) this.lastSequence = null;
