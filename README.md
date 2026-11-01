@@ -1,62 +1,57 @@
-# Pricing Engine and Live Order Book
+# Price Generator · Market Lab
 
-FastAPI backend and Angular frontend for simulated prices and shared live market depth. Search a ticker to load its price history and ten bid/ask levels. Prices advance once per minute; book quantities update once per second. All clients see the same backend-owned liquidity.
+An anonymous synthetic market simulator with its original Market Lab interface:
+asset class, simulation model, bar interval, Start/Stop, and a candlestick/volume
+chart with zoom and pan. It generates a random price path rather than looking up
+named instruments. Time is elapsed simulated time, with no trading-day clock.
 
-## Run backend (uv)
+The order book belongs to that same anonymous run. Its reference price is the
+forming candle’s close, quantities change once per second while running, and
+Stop freezes both the chart and depth. Start creates a fresh stochastic run.
+The original regime switching, mean reversion, and jump diffusion models are
+unchanged. Trading and order matching remain a future milestone.
 
-```bash
+## Run locally
+
+```sh
 uv sync --frozen
-uv run uvicorn app.main:app --reload
+HOST=127.0.0.1 PORT=4200 uv run python server.py
 ```
 
-Optional simulation datetime (ISO-8601):
+Open `http://localhost:4200`. The active frontend is `web/`; no Angular build is
+needed. The earlier Angular/FastAPI prototype in `frontend/` and `app/` is not
+the current application or deployment entrypoint.
 
-```bash
-SIMULATION_DT=2024-01-02T11:30:00 uv run uvicorn app.main:app --reload
-```
+## API
 
-## Run frontend (Angular)
+- `POST /api/start` takes `asset_class` (`stocks` or `spot_crypto`),
+  `simulation_model` (`regime_switching`, `mean_reverting`, or `jump_diffusion`),
+  and `bar_interval` (`1m`, `2m`, `5m`, `15m`, `1h`, `2h`, `3h`, or `4h`).
+- `GET /api/state?history=1` returns the original simulation/candle payload,
+  plus `order_book`. Chart and depth therefore use one consistent snapshot.
+- `GET /api/orderbook` returns the active anonymous book, or null before Start.
+  Reading depth does not consume pending closed candles.
+- `POST /api/stop` freezes the current simulation and book.
+- A book contains `run_id`, `sequence`, `ts`, `reference_price`,
+  `reference_simulated_seconds`, `status`, `tick_size`, `bids`, and `asks`.
+  Each side has ten levels with `price`, positive integer `quantity`, and
+  `cumulative_quantity`. Prices use one-cent ticks for normal profile prices;
+  very small synthetic prices use a smaller grid to keep all bids positive.
 
-```bash
-cd frontend
-npm ci
-npm start
-```
+## Verify
 
-Open `http://localhost:4200`.
-
-The backend API documentation is at `http://127.0.0.1:8000/docs`.
-
-## Notes
-
-- Available tickers: `AAPL`, `MSFT`, `GOOG`, `TSLA`.
-- History is capped at 390 points (one trading day of 1-minute bars).
-- The default simulation starts January 2, 2024, at 11:30 a.m. New York time. Set `SIMULATION_DT` to change it; naive timestamps use New York time and aware timestamps are converted to it.
-- The session is 9:30 a.m. inclusive to 4:00 p.m. exclusive, New York time. Depth freezes outside the session. This is a single-session demo without an exchange holiday calendar.
-- Prices have a minimum of $0.11 so ten positive one-cent bid levels remain available.
-- Run one backend worker: state is in memory, shared across connections within that process, and resets on restart.
-- Trading, matching, balances, and execution-driven prices are reserved for the next milestone. The current book is simulated aggregated liquidity.
-
-## Order book API
-
-- `GET /api/orderbook/{ticker}` initializes and returns the current full snapshot. Tickers are case-insensitive; unsupported tickers return 404.
-- `GET /api/orderbook/{ticker}/stream` sends full snapshots as default SSE `message` events. Every connection starts with the current snapshot, including reconnects; missed events are not replayed. Event IDs are per-ticker sequences and reset on server restart. Slow clients skip intermediate snapshots rather than accumulating a queue. SSE comment heartbeats keep closed-market connections alive.
-- Snapshot fields: `ticker`, `sequence`, `ts` (simulation epoch seconds), `reference_price`, `reference_ts` (price epoch seconds), `session_status` (`open` or `closed`), `bids`, and `asks`.
-- Each level has `price`, integer `quantity`, and `cumulative_quantity`. API bids are sorted highest first; asks lowest first. The UI reverses asks so the best ask sits beside the spread.
-- Existing history, latest-price, parameter, and configuration endpoints retain their response formats. The UI uses snapshot reference prices to keep the chart and book aligned without duplicating minute points.
-
-## Verification
-
-```bash
+```sh
 uv run python -m pytest -q
-cd frontend
-npm run build
+node --test tests/browser/marketlab.test.mjs
 ```
 
-The API acceptance suite launches real backend processes on temporary local ports. It covers shared state, streaming and reconnects, initialization, session transitions, minute-price alignment, and unsupported symbols.
+Browser tests require Playwright and Chrome (or the bundled Codex runtime).
+They verify the original controls/style, random simulation, chart/depth
+alignment, Stop/restart, responsiveness, and service-error recovery.
 
-With both development servers running, use `npm run test:browser` from `frontend/` for browser acceptance checks. See [browser test setup](frontend/tests/README.md) for Playwright/Chrome requirements and environment options.
+## Hosted version
 
-## Hosted deployment
-
-The simulator is hosted at [Price Generator](https://d1duii6i44ll6h.cloudfront.net/price-generator/) with the existing ticker-info sign-in. Hosted builds use the `/price-generator/` base path and same-origin API/stream requests. The production entrypoint is `app.hosted:application`; local development continues to use `app.main:app`. See [deployment and rollback instructions](deploy/README.md).
+[Price Generator](https://d1duii6i44ll6h.cloudfront.net/price-generator/) uses the
+existing ticker-info sign-in. `BASE_PATH=/price-generator` preserves its route.
+The production container requires `AUTH_SESSION_URL`; local development can run
+without it. See [deployment and rollback](deploy/README.md).

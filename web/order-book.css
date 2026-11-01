@@ -1,0 +1,34 @@
+.order-book-section { margin-top: 26px; padding: 19px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-bright); }
+.order-book-section .book-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.order-book-section h2 { margin: 0; font: 700 13px var(--sans); letter-spacing: -.015em; }
+.order-book-section .book-heading p { margin: 5px 0 0; color: var(--muted); font: 10px/1.6 var(--mono); }
+.order-book-section .book-status { flex: none; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font: 10px var(--mono); }
+.order-book-section .book-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.order-book-section .book-status[data-state="running"] { color: var(--green-deep); }
+.order-book-section .book-status[data-state="running"]::before { background: var(--green-deep); }
+.order-book-section .book-status[data-state="unavailable"] { color: #873e35; }
+.order-book-section .book-status[data-state="unavailable"]::before { background: var(--red); }
+.order-book-section .book-empty { margin: 19px 0 2px; color: var(--muted); font: 11px var(--sans); }
+.order-book-section .book-summary { display: flex; gap: 40px; margin-top: 18px; padding: 13px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.order-book-section .book-summary span { display: block; margin-bottom: 6px; color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; }
+.order-book-section .book-summary strong { color: var(--ink); font: 500 19px var(--mono); letter-spacing: -.04em; }
+.order-book-section .book-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
+.order-book-section h3 { display: flex; align-items: baseline; gap: 10px; margin: 17px 0 11px; font: 600 12px var(--sans); }
+.order-book-section h3 span { color: var(--muted); font: 8px var(--mono); letter-spacing: .07em; }
+.order-book-section .book-asks h3, .order-book-section .book-asks .book-price { color: #b34d43; }
+.order-book-section .book-bids h3, .order-book-section .book-bids .book-price { color: var(--green-deep); }
+.order-book-section .book-columns, .order-book-section .book-level { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; text-align: right; }
+.order-book-section .book-columns > :first-child, .order-book-section .book-level > .book-price { text-align: left; }
+.order-book-section .book-columns { padding: 0 5px 8px; color: var(--muted); font: 9px var(--mono); }
+.order-book-section .book-level { position: relative; padding: 5px; color: var(--ink); font: 10px var(--mono); font-variant-numeric: tabular-nums; }
+.order-book-section .book-level > span { position: relative; z-index: 1; }
+.order-book-section .book-level > .book-depth { position: absolute; right: 0; top: 1px; bottom: 1px; z-index: 0; border-radius: 2px; opacity: .1; }
+.order-book-section .book-asks .book-depth { background: var(--red); }
+.order-book-section .book-bids .book-depth { background: var(--green-deep); }
+.order-book-section [hidden] { display: none; }
+@media (max-width: 700px) {
+  .order-book-section { padding: 16px 13px; margin-top: 22px; }
+  .order-book-section .book-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .order-book-section .book-heading p { font-size: 9px; }
+  .order-book-section .book-sides { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f1f0e9" />
+    <title>Price Generator · Market Lab</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23182a23'/%3E%3Cpath d='M10 26V15m7 15V10m7 12V14m7 11V8' stroke='%23b8f56c' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="order-book.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Market Lab home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand-name">market<span>lab</span></span>
+        </a>
+        <div class="topbar-meta">
+          <span class="synthetic-tag"><span class="tag-dot"></span> SYNTHETIC DATA</span>
+          <span class="topbar-divider" aria-hidden="true"></span>
+          <span class="topbar-label">PRICE GENERATOR</span>
+        </div>
+        <div class="stream-state" id="streamState" data-state="stopped">
+          <span class="stream-dot"></span>
+          <span id="streamStateText">READY TO START</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="workspace-heading" aria-labelledby="pageTitle">
+          <div class="heading-copy">
+            <p class="eyebrow">LIVE SIMULATION <span> / </span> MARKET BEHAVIOR</p>
+            <h1 id="pageTitle">Price generator</h1>
+            <p class="subheading" id="modelDescription">A mix of rising, sideways, and falling phases, with noisy volume that responds to price moves.</p>
+          </div>
+          <form class="control-bar" id="controls">
+            <label class="select-control">
+              <span>ASSET CLASS</span>
+              <select id="assetClass" aria-label="Asset class">
+                <option value="stocks">Stocks</option>
+                <option value="spot_crypto">Spot crypto</option>
+              </select>
+            </label>
+            <span class="control-separator" aria-hidden="true"></span>
+            <label class="select-control model-control">
+              <span>SIMULATION MODEL</span>
+              <select id="simulationModel" aria-label="Simulation model">
+                <option value="regime_switching">Regime switching</option>
+                <option value="mean_reverting">Mean reversion</option>
+                <option value="jump_diffusion">Jump diffusion</option>
+              </select>
+            </label>
+            <span class="control-separator model-separator" aria-hidden="true"></span>
+            <label class="select-control interval-control">
+              <span>BAR INTERVAL</span>
+              <select id="barInterval" aria-label="Bar interval">
+                <option value="1m">1 minute</option>
+                <option value="2m">2 minutes</option>
+                <option value="5m">5 minutes</option>
+                <option value="15m">15 minutes</option>
+                <option value="1h">1 hour</option>
+                <option value="2h">2 hours</option>
+                <option value="3h">3 hours</option>
+                <option value="4h">4 hours</option>
+              </select>
+            </label>
+            <button class="start-button" id="startButton" type="submit">
+              <span class="play-icon" aria-hidden="true"></span> Start stream
+            </button>
+            <button class="stop-button" id="stopButton" type="button" hidden>
+              <span class="stop-icon" aria-hidden="true"></span> Stop stream
+            </button>
+          </form>
+        </section>
+
+        <section class="metrics-row" aria-label="Current simulation metrics">
+          <div class="metric metric-price">
+            <span class="metric-label">LAST PRICE <span class="synthetic-mark">SYNTHETIC</span></span>
+            <strong id="lastPrice">—</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">MOVE FROM START</span>
+            <strong id="netMove" class="neutral-value">—</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">FORMING BAR VOLUME</span>
+            <strong id="barVolume">—</strong>
+            <span class="metric-unit" id="volumeUnit"></span>
+          </div>
+          <div class="metric metric-elapsed">
+            <span class="metric-label">ELAPSED SIMULATED TIME</span>
+            <strong id="elapsedTime">+000h 00m</strong>
+          </div>
+        </section>
+
+        <section class="chart-section" aria-labelledby="chartTitle">
+          <div class="chart-heading">
+            <div class="chart-title-group">
+              <span class="chart-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+              <div>
+                <h2 id="chartTitle">Price &amp; volume</h2>
+                <p id="chartSubtitle">Regime switching · 1 minute bars · elapsed simulated time</p>
+              </div>
+            </div>
+            <div class="chart-heading-right">
+              <div class="zoom-tools" aria-label="Chart navigation">
+                <span id="visibleCount">0 candles</span>
+                <div class="zoom-buttons">
+                  <button id="zoomOut" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+                  <button id="zoomIn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+                  <button id="resetZoom" type="button" title="Reset zoom">Reset</button>
+                  <button id="latestButton" type="button" class="latest-active" title="Follow the latest candle">Latest</button>
+                </div>
+              </div>
+              <div class="chart-key" aria-label="Chart legend">
+                <span><i class="key-up"></i> Higher close</span>
+                <span><i class="key-down"></i> Lower close</span>
+                <span class="forming-key"><i></i> FORMING</span>
+              </div>
+            </div>
+          </div>
+          <div class="chart-frame" id="chartFrame">
+            <canvas id="priceChart" role="img" aria-label="Live synthetic candlestick price chart with volume bars"></canvas>
+            <div class="chart-empty" id="chartEmpty">
+              <span class="empty-glyph" aria-hidden="true"><i></i><i></i><i></i></span>
+              <strong>Your chart starts here</strong>
+              <span>Choose an asset class, simulation model, and bar interval, then start the stream.</span>
+            </div>
+            <div class="chart-tooltip" id="chartTooltip" aria-hidden="true"></div>
+          </div>
+          <div class="chart-footnote">
+            <span><i class="footnote-dot"></i> Prices and volume are simulated</span>
+            <span>Wheel to zoom <b>·</b> Drag to pan <b>·</b> Stop any time</span>
+          </div>
+        </section>
+        <section class="order-book-section" aria-label="Synthetic order book">
+          <div class="book-heading">
+            <div><h2>Synthetic order book</h2><p>Simulated liquidity around the current price · 10 levels per side</p></div>
+            <span class="book-status" id="orderBookStatus" role="status" data-state="ready">Ready to start</span>
+          </div>
+          <p class="book-empty" id="orderBookEmpty">Start a simulation to generate market depth.</p>
+          <div id="orderBookLevels" hidden>
+            <div class="book-summary">
+              <div><span>REFERENCE PRICE</span><strong id="orderBookReference">—</strong></div>
+              <div><span>SPREAD</span><strong id="orderBookSpread">—</strong></div>
+            </div>
+            <div class="book-sides">
+              <div class="book-side book-asks"><h3>Asks <span>SELL INTEREST</span></h3><div class="book-columns"><span>Price</span><span>Quantity</span><span>Cumulative</span></div><div id="orderBookAsks"></div></div>
+              <div class="book-side book-bids"><h3>Bids <span>BUY INTEREST</span></h3><div class="book-columns"><span>Price</span><span>Quantity</span><span>Cumulative</span></div><div id="orderBookBids"></div></div>
+            </div>
+          </div>
+        </section>
+        <div class="error-message" id="errorMessage" role="alert" hidden></div>
+      </main>
+
+      <footer class="page-footer">
+        <span>MARKET LAB <b>·</b> SYNTHETIC SCENARIO</span>
+        <span>Time axis uses elapsed simulation time, not calendar dates.</span>
+      </footer>
+    </div>
+  </body>
+</html>

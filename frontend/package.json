@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "cd .. && HOST=127.0.0.1 PORT=4200 uv run python server.py",
     "build": "ng build",
     "test:browser": "node --test tests/orderbook.browser.test.mjs",
     "watch": "ng build --watch --configuration development"

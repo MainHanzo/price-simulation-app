@@ -1,51 +1,47 @@
-# Existing CloudFront deployment
+# Market Lab deployment and rollback
 
-The production route is `https://d1duii6i44ll6h.cloudfront.net/price-generator/`.
-CloudFront distribution `ENRZ6SL6BBJ3U` routes `/price-generator*` to port 8002
-on `i-02612abe30163f72c` in `us-east-2`. The ticker-info API remains on port
-8000 and its frontend remains in S3. Deploy only the dedicated price-generator
-service; CloudFront routing and ticker-info authentication stay in place.
+Production: https://d1duii6i44ll6h.cloudfront.net/price-generator/
+CloudFront distribution ENRZ6SL6BBJ3U routes /price-generator* to the dedicated
+price-generator service on port8002 of i-02612abe30163f72c (us-east-2).
+Ticker-info remains on8000; its S3 frontend and authentication are unchanged.
 
-## Build a release
+The active application is server.py + price_generator/ + web/. It restores the
+original Market Lab design and anonymous OHLCV models. Do not deploy the retired
+Angular/FastAPI prototype as the current simulator.
+
+## Build
 
 ```sh
-uv sync --frozen
 uv run python -m pytest -q
-uv export --frozen --no-dev --no-emit-project --output-file deploy/requirements.txt
-cd frontend
-npm ci
-npm run build -- --base-href /price-generator/
+node --test tests/browser/marketlab.test.mjs
+docker build -f deploy/Dockerfile -t price-generator:<commit> .
 ```
 
-The Docker build context must contain `app/`, `deploy/Dockerfile`,
-`deploy/login.html`, the generated `deploy/requirements.txt`, and
-`frontend/dist/frontend/browser/`. Exclude caches and local environment files.
-Build with `docker build -f deploy/Dockerfile -t price-generator:<commit> .`.
-The exported requirements retain the lockfile's versions and hashes.
+The container uses Python3.11.9, the standard-library HTTP server, and a nonroot
+user. Its context needs server.py, price_generator/, web/, and deploy/Dockerfile.
+No Angular bundle or exported pip requirements are needed.
 
-## Hosted configuration
+## Hosted settings
 
-- Entrypoint: `app.hosted:application`; one worker, port 8002.
-- `BASE_PATH=/price-generator` (default).
-- `AUTH_SESSION_URL=https://d1duii6i44ll6h.cloudfront.net/v1/auth/session`
-  is required. Missing configuration prevents startup; unavailable authentication
-  returns 503. Cookie and bearer credentials are forwarded only to that service.
-- `RELEASE_SHA=<commit>` identifies the running release in the public
-  `/price-generator/health` response.
-- `STATIC_DIR=/srv/static` and `LOGIN_PAGE_PATH=/srv/deploy/login.html` are set
-  by the image. The login page preserves ticker-info's existing `/v1/auth/login`
-  flow and its HttpOnly session cookie.
-- `SIMULATION_DT` is optional; the original default simulated session is retained.
+- HOST=0.0.0.0, PORT=8002, BASE_PATH=/price-generator are image defaults.
+- REQUIRE_AUTH=1 makes missing AUTH_SESSION_URL fail startup.
+- AUTH_SESSION_URL=https://d1duii6i44ll6h.cloudfront.net/v1/auth/session
+  validates existing ticker-info cookies/bearer credentials. Authentication
+  failure denies API/assets; the root serves the original sign-in page.
+- RELEASE_SHA=<commit> is returned by /price-generator/health.
+- The simulation uses elapsed synthetic time, with Start/Stop and the original
+  asset/model/interval controls. There are no named-instrument API parameters,
+  New York clock, or market-hours gates in this application.
 
-## Stage, verify, and switch
+## Stage and release
 
-Upload the code/build archive under
-`s3://ticker-info-bucket/price-generator-releases/<commit>.tar.gz`, then use the
-existing instance's SSM access to download and build it under
-`/opt/price-generator-releases/<commit>/`. Keep this archive free of credentials.
+Stage a source archive in s3://ticker-info-bucket/price-generator-releases/.
+Use an operator-issued short-lived presigned download for the SSM instance;
+its role cannot directly read this release prefix. Keep signed URLs out of
+console output and exclude credentials/caches from archives.
+Build under /opt/price-generator-releases/<commit>/.
 
-Run a candidate container bound to `127.0.0.1:18002:8002` with the hosted
-configuration above. Before switching, run:
+Run the candidate bound to127.0.0.1:18002:8002 with the hosted settings. Verify:
 
 ```sh
 python3 tests/deployment_smoke.py \
@@ -53,24 +49,20 @@ python3 tests/deployment_smoke.py \
   --release <commit> --auth-container quant-api
 ```
 
-The smoke test reads the existing ticker-info service token into memory on the
-instance, never prints it, and exercises only external HTTP interfaces. The
-default simulated session must still be open for the two-update streaming check.
+The smoke checks use the existing service token only in memory. They verify
+sign-in, protected endpoints, original UI, random simulation, chart-aligned
+anonymous depth, Start/Stop, and absence of instrument lookup routes.
 
-Keep the previous `/etc/systemd/system/price-generator.service` as
-`/opt/price-generator-releases/price-generator.service.before-container` before
-the first container deployment. Stop only `price-generator.service`, install the
-container service with the verified image, and start it on port 8002. Retain
-`/opt/price-generator/` unchanged as the original application rollback.
-Repeat the smoke test against the CloudFront URL and verify the UI in a browser
-with an existing ticker-info session. No CloudFront invalidation is normally
-needed: the existing price-generator behavior disables caching.
+Save the current systemd unit before switching only price-generator.service
+and repeat the smoke check against the CloudFront URL. CloudFront caching is
+already disabled for this route. Do not change its routing, security groups,
+IAM roles, ticker-info container, or authentication secrets.
 
 ## Rollback
 
-Stop the candidate service, restore the saved systemd unit, run
-`systemctl daemon-reload`, then start `price-generator.service` again. Its old
-source and login integration remain at `/opt/price-generator/`. For subsequent
-container releases, save the current unit before switching and restore that unit
-to return to the prior immutable image. Do not restart ticker-info or change its
-secrets during a price-generator release.
+The untouched original standalone application remains at /opt/price-generator/.
+Its systemd unit is saved at
+/opt/price-generator-releases/price-generator.service.before-container.
+Stop price-generator, restore that unit to/etc/systemd/system/price-generator.service,
+run systemctl daemon-reload and start price-generator. For later container
+releases, retain a per-release previous unit to restore the earlier image.

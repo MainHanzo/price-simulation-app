@@ -15,10 +15,16 @@ from urllib.request import Request, urlopen
 
 
 def check(base_url: str, release: str, token: str) -> None:
-    def request(path: str, authenticated: bool = False) -> tuple[int, bytes]:
+    import time
+
+    def request(path: str, authenticated: bool = False, payload: Optional[dict[str, Any]] = None) -> tuple[int, bytes]:
         headers = {"Authorization": "Bearer " + token} if authenticated else {}
+        data = None
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(payload).encode()
         try:
-            with urlopen(Request(base_url + path, headers=headers), timeout=10) as response:
+            with urlopen(Request(base_url + path, headers=headers, data=data), timeout=10) as response:
                 return response.status, response.read()
         except HTTPError as error:
             return error.code, error.read()
@@ -27,26 +33,31 @@ def check(base_url: str, release: str, token: str) -> None:
     assert status == 200 and json.loads(body) == {"ok": True, "release": release}
     status, body = request("/")
     assert status == 200 and b"ticker info account" in body
-    assert request("/api/orderbook/AAPL")[0] == 401
-    assert request("/api/orderbook/AAPL/stream")[0] == 401
+    assert request("/api/state")[0] == 401
+    assert request("/api/orderbook")[0] == 401
     status, body = request("/", True)
-    assert status == 200 and b"<app-root>" in body and b'/price-generator/' in body
-    status, body = request("/api/orderbook/AAPL", True)
+    assert status == 200 and b"Price Generator" in body and b'id="assetClass"' in body
+    assert b'id="ticker-input"' not in body and b"AAPL" not in body
+    status, body = request("/api/start", True, {"asset_class": "stocks", "bar_interval": "1m", "simulation_model": "regime_switching"})
     assert status == 200
-    book: dict[str, Any] = json.loads(body)
+    initial = json.loads(body)
+    time.sleep(1.2)
+    status, body = request("/api/state", True)
+    state = json.loads(body)
+    book = state["order_book"]
+    assert status == 200 and state["current_bar"]["is_synthetic"] is True
     assert len(book["bids"]) == len(book["asks"]) == 10
+    assert book["reference_price"] == state["current_bar"]["close"]
     assert book["bids"][0]["price"] < book["reference_price"] < book["asks"][0]["price"]
-    with urlopen(Request(base_url + "/api/orderbook/AAPL/stream", headers={"Authorization": "Bearer " + token}), timeout=10) as response:
-        assert response.headers["Content-Type"].startswith("text/event-stream")
-        received = []
-        while len(received) < 2:
-            line = response.readline().decode()
-            assert line, "Stream ended before two snapshots"
-            if line.startswith("data: "):
-                received.append(json.loads(line[6:]))
-        assert received[1]["sequence"] > received[0]["sequence"]
-        assert received[1]["ts"] > received[0]["ts"]
-    print("Hosted release verified: health, login, denied anonymous API, authenticated UI/book, live SSE.")
+    assert book["sequence"] > initial["order_book"]["sequence"]
+    status, body = request("/api/stop", True, {})
+    assert status == 200
+    stopped = json.loads(body)
+    assert stopped["running"] is False and stopped["order_book"]["status"] == "stopped"
+    status, body = request("/api/orderbook", True)
+    assert status == 200 and json.loads(body) == stopped["order_book"]
+    assert request("/api/orderbook/AAPL", True)[0] == 404
+    print("Market Lab verified: original UI, shared login, anonymous simulation, aligned depth, Start/Stop.")
 
 
 def service_token(container: Optional[str]) -> str:
