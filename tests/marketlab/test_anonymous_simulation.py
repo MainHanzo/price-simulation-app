@@ -1,6 +1,7 @@
 """Observable Market Lab flow: no named symbols or trading-day clock."""
 
 import time
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -37,6 +38,26 @@ def test_original_ui_and_idle_state_have_no_symbol_selection(marketlab_server: t
     assert state["running"] is False and state["order_book"] is None
     assert client.get(prefix + "/api/orderbook").json() is None
     assert client.get(prefix + "/api/orderbook/AAPL").status_code == 404
+
+
+def test_restored_page_avoids_previous_script_cache(marketlab_server: tuple[httpx.Client, str]) -> None:
+    client, prefix = marketlab_server
+
+    class Scripts(HTMLParser):
+        sources: list[str] = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "script":
+                self.sources.append(dict(attrs)["src"])
+
+    parser = Scripts()
+    parser.feed(client.get(prefix + "/").text)
+    assert len(parser.sources) == 1
+    source = parser.sources[0]
+    assert source != "app.js", "Existing browsers can retain the original unversioned script"
+    script = client.get(prefix + "/" + source)
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
 
 
 @pytest.mark.parametrize("asset,model", [("stocks", "regime_switching"), ("stocks", "mean_reverting"), ("stocks", "jump_diffusion"), ("spot_crypto", "regime_switching"), ("spot_crypto", "mean_reverting"), ("spot_crypto", "jump_diffusion")])
