@@ -7,15 +7,21 @@ import random
 import time
 from typing import Any
 
+from .market_session import SessionConditions
+
 
 class SimulatedOrderBook:
-    def __init__(self, run_id: int) -> None:
+    def __init__(self, run_id: int, seed: int | None = None) -> None:
         self.run_id = run_id
-        self._random = random.Random()
+        self._random = random.Random(seed)
+        self._seed = self._random.getrandbits(64)
+        # Persistent resting interest, modulated by session depth and churn.
+        self._base_quantities = [self._random.randint(100, 400) for _ in range(10)]
         self._snapshot: dict[str, Any] | None = None
         self._quantity_updated: float | None = None
 
-    def update(self, price: float, simulated_seconds: float, running: bool) -> dict[str, Any]:
+    def update(self, price: float, simulated_seconds: float, running: bool,
+               conditions: SessionConditions | None = None) -> dict[str, Any]:
         previous = self._snapshot
         now = time.monotonic()
         status = "running" if running else "stopped"
@@ -30,12 +36,24 @@ class SimulatedOrderBook:
         units = reference / tick
         bid = int(units.to_integral_value(rounding=ROUND_CEILING)) - 1
         ask = int(units.to_integral_value(rounding=ROUND_FLOOR)) + 1
+        if conditions:
+            half_width = min(max(0, round(2 * conditions.spread) - 1), max(0, bid - 10))
+            bid -= half_width
+            ask += half_width
+            # Seed from simulated time so extra HTTP reads cannot change the
+            # liquidity at a particular simulated instant.
+            bucket = int(simulated_seconds / conditions.refresh_seconds)
+            quantity_rng = random.Random(self._seed ^ bucket)
 
         def levels(side: str, best: int, direction: int) -> list[dict[str, int | float]]:
             rows = []
             cumulative = 0
             for index in range(10):
-                if previous is None:
+                if conditions:
+                    skew = conditions.imbalance * (.7 if side == "bids" else -.7)
+                    quantity = max(1, round(self._base_quantities[index] * conditions.depth
+                                            * (1 + skew) * quantity_rng.uniform(.8, 1.2)))
+                elif previous is None:
                     quantity = self._random.randint(50, 500)
                 else:
                     quantity = previous[side][index]["quantity"]
@@ -57,6 +75,9 @@ class SimulatedOrderBook:
             "bids": levels("bids", bid, -1),
             "asks": levels("asks", ask, 1),
         }
+        if conditions:
+            self._snapshot["session_phase"] = conditions.phase
+            self._snapshot["imbalance"] = conditions.imbalance
         if change_quantities:
             self._quantity_updated = now
         return self._snapshot

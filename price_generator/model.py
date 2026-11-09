@@ -2,16 +2,18 @@
 
 The built-in profiles are illustrative starting values, not calibrated market
 forecasts. Pass locally calibrated profiles for development style imitation.
-The engine has no date, session, or market-calendar concept.
+An optional US stock session models one typical day without a holiday calendar.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 import math
 import random
 from typing import Mapping
+
+from .market_session import CLOSE_SECONDS, OPEN_SECONDS, PHASE_LABELS, SessionConditions, USStockSession
 
 
 class AssetClass(str, Enum):
@@ -202,7 +204,8 @@ class RegimeSwitchingSimulator:
     """Advance one open-ended synthetic OHLCV stream.
 
     ``advance_wall_time`` converts elapsed wall-clock seconds into simulated
-    time so a full selected bar takes ``wall_seconds_per_bar`` seconds. It
+    time so a full selected bar takes ``wall_seconds_per_bar`` seconds, unless
+    a stock session supplies an independent playback speed. It
     returns every bar closed during the call plus the current forming bar.
     Omitting ``seed`` gives a fresh stochastic run; passing one is intended for
     repeatable developer debugging.
@@ -220,6 +223,7 @@ class RegimeSwitchingSimulator:
         seed: int | None = None,
         profile: RegimeSwitchingProfile | None = None,
         simulation_model: SimulationModel | str = SimulationModel.REGIME_SWITCHING,
+        stock_session: USStockSession | None = None,
     ) -> None:
         try:
             self.asset_class = AssetClass(asset_class)
@@ -247,6 +251,17 @@ class RegimeSwitchingSimulator:
             raise ValueError("Profile asset_class must match the simulator asset_class")
         self._validate_profile(self.profile)
 
+        if stock_session is not None and self.asset_class is not AssetClass.STOCKS:
+            raise ValueError("US sessions are supported for stocks only")
+        if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2**32 - 1):
+            raise ValueError("seed must be an integer between 0 and 4294967295")
+        self.stock_session = stock_session
+        self._session_rng = random.Random(None if seed is None else seed ^ 0x53544F43)
+        self._session_pressure = self._session_rng.uniform(-.75, .75)
+        self._auctions: list[dict] = []
+        self._official_close: float | None = None
+        self._session_closed = False
+
         self._rng = random.Random(seed)
         if self.simulation_model is SimulationModel.REGIME_SWITCHING:
             self._regime_name = self._weighted_choice(self.profile.initial_regime_weights)
@@ -266,6 +281,44 @@ class RegimeSwitchingSimulator:
         self._bar_close = self.profile.starting_price
         self._bar_volume = 0.0
         self._bar_regimes = initial_bar_regimes
+        if stock_session and stock_session.start_seconds == OPEN_SECONDS:
+            self._execute_auction("opening")
+
+    @property
+    def session_conditions(self) -> SessionConditions | None:
+        if self.stock_session is None:
+            return None
+        return self.stock_session.conditions(self._simulated_seconds, self._session_pressure)
+
+    @property
+    def session_state(self) -> dict | None:
+        if self.stock_session is None:
+            return None
+        clock = self.stock_session.seconds_of_day(self._simulated_seconds)
+        seconds = int(clock)
+        conditions = self.session_conditions
+        next_auction = None
+        if clock < CLOSE_SECONDS:
+            opening = clock < OPEN_SECONDS
+            quantity = round(self.profile.mean_volume_per_hour * (.25 if opening else .6))
+            next_auction = {
+                "kind": "opening" if opening else "closing",
+                "seconds_remaining": (OPEN_SECONDS if opening else CLOSE_SECONDS) - clock,
+                "indicative_price": self._bar_close * math.exp(conditions.imbalance * .001),
+                "imbalance_side": "buy" if conditions.imbalance >= 0 else "sell",
+                "imbalance_quantity": round(quantity * abs(conditions.imbalance)),
+            }
+        return {
+            "preset": self.stock_session.preset,
+            "playback_speed": self.stock_session.playback_speed,
+            "timezone": "America/New_York", "start_seconds": self.stock_session.start_seconds,
+            "clock": f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}",
+            "simulated_seconds": self._simulated_seconds,
+            "seconds_to_close": max(0, CLOSE_SECONDS - clock),
+            "phase": conditions.phase, "phase_label": PHASE_LABELS[conditions.phase],
+            "conditions": asdict(conditions), "auctions": [dict(event) for event in self._auctions],
+            "official_close": self._official_close, "next_auction": next_auction,
+        }
 
     @property
     def current_regime(self) -> str:
@@ -277,7 +330,7 @@ class RegimeSwitchingSimulator:
 
     @property
     def current_bar(self) -> OHLCVBar:
-        return self._snapshot(is_closed=False)
+        return self._snapshot(is_closed=self._session_closed)
 
     def advance_wall_time(self, elapsed_wall_seconds: float) -> AdvanceResult:
         """Advance the stream and return closed bars plus the live bar state."""
@@ -286,6 +339,9 @@ class RegimeSwitchingSimulator:
         if not math.isfinite(elapsed) or elapsed < 0.0:
             raise ValueError("elapsed_wall_seconds must be finite and non-negative")
         remaining = elapsed * self.interval_seconds / self.wall_seconds_per_bar
+        if self.stock_session:
+            remaining = min(elapsed * self.stock_session.playback_speed,
+                            max(0, self.stock_session.duration_seconds - self._simulated_seconds))
         completed: list[OHLCVBar] = []
 
         while remaining > self._EPSILON:
@@ -298,6 +354,7 @@ class RegimeSwitchingSimulator:
                 self.max_internal_step_seconds,
                 until_bar_close,
                 self._regime_time_remaining,
+                self.stock_session.seconds_to_boundary(self._simulated_seconds) if self.stock_session else math.inf,
             )
             if step <= self._EPSILON:
                 # Boundary rounding can leave a tiny remainder. Snap to the
@@ -318,12 +375,28 @@ class RegimeSwitchingSimulator:
             self._regime_time_remaining = max(0.0, self._regime_time_remaining - step)
 
             bar_closed = self._bar_elapsed_seconds >= self.interval_seconds - self._EPSILON
+            market_time = self.stock_session.seconds_of_day(self._simulated_seconds) if self.stock_session else None
+            at_close = market_time is not None and market_time >= CLOSE_SECONDS - self._EPSILON
+            at_open = market_time is not None and abs(market_time - OPEN_SECONDS) < self._EPSILON
             regime_changed = self._regime_time_remaining <= self._EPSILON
+
+            if at_close:
+                # Align metadata and candles when floating-point rounding puts
+                # us within epsilon of the bell, rather than leaving a tiny
+                # unconsumable remainder in an otherwise finalized session.
+                self._bar_elapsed_seconds += self.stock_session.duration_seconds - self._simulated_seconds
+                self._simulated_seconds = float(self.stock_session.duration_seconds)
+                self._execute_auction("closing")
+                self._session_closed = True
+                completed.append(self._snapshot(is_closed=True))
+                break
 
             # Close the old bar before applying a regime transition at the
             # same simulated instant. The new regime starts in the next bar.
-            if bar_closed:
+            if bar_closed or (at_open and self._bar_elapsed_seconds > self._EPSILON):
                 completed.append(self._finish_bar())
+            if at_open:
+                self._execute_auction("opening")
             if regime_changed:
                 self._transition_regime()
                 regime_changed_at_boundary = True
@@ -332,23 +405,25 @@ class RegimeSwitchingSimulator:
 
         return AdvanceResult(
             completed_bars=tuple(completed),
-            forming_bar=self._snapshot(is_closed=False),
+            forming_bar=self.current_bar,
             current_regime=self._regime_name,
             simulated_seconds=self._simulated_seconds,
         )
 
     def _simulate_step(self, simulated_seconds: float) -> None:
+        conditions = (self.stock_session.conditions(self._simulated_seconds + simulated_seconds / 2,
+                                                    self._session_pressure) if self.stock_session else None)
+        if conditions and conditions.phase == "pre_open":
+            return
         dt_hours = simulated_seconds / 3_600.0
         regime = self._calibration_regime()
-        sigma = regime.volatility_per_sqrt_hour
+        if self.simulation_model is SimulationModel.REGIME_SWITCHING:
+            regime = self.profile.regimes[self._regime_name]
+        sigma = regime.volatility_per_sqrt_hour * (conditions.volatility if conditions else 1)
         diffusion_scale = sigma * math.sqrt(dt_hours)
         activity = regime.volume_activity
 
         if self.simulation_model is SimulationModel.REGIME_SWITCHING:
-            regime = self.profile.regimes[self._regime_name]
-            sigma = regime.volatility_per_sqrt_hour
-            diffusion_scale = sigma * math.sqrt(dt_hours)
-            activity = regime.volume_activity
             log_return = (
                 (regime.drift_per_hour - 0.5 * sigma * sigma) * dt_hours
                 + diffusion_scale * self._rng.gauss(0.0, 1.0)
@@ -371,6 +446,8 @@ class RegimeSwitchingSimulator:
                 + jump_return
             )
 
+        if conditions:
+            log_return += conditions.imbalance * .001 * dt_hours
         self._log_price += log_return
         self._bar_close = math.exp(self._log_price)
         self._bar_high = max(self._bar_high, self._bar_close)
@@ -395,11 +472,35 @@ class RegimeSwitchingSimulator:
             * activity
             * move_activity
             * volume_noise
+            * (conditions.volume if conditions else 1)
         )
+
+    def _execute_auction(self, kind: str) -> None:
+        if any(event["kind"] == kind for event in self._auctions):
+            return
+        opening = kind == "opening"
+        gap = self._session_rng.gauss(0, .004 if opening else .0006) + self._session_pressure * .001
+        self._log_price += max(-.02, min(.02, gap))
+        self._bar_close = math.exp(self._log_price)
+        # The opening candle starts at the auction; the gap is relative to the
+        # previous-close reference, rather than a fictitious continuous trade.
+        if opening:
+            self._bar_open = self._bar_high = self._bar_low = self._bar_close
+        else:
+            self._bar_high = max(self._bar_high, self._bar_close)
+            self._bar_low = min(self._bar_low, self._bar_close)
+            self._official_close = self._bar_close
+        volume = max(1, round(self.profile.mean_volume_per_hour * (.25 if opening else .6)
+                              * self._session_rng.lognormvariate(-.045, .3)))
+        self._bar_volume += volume
+        self._auctions.append({"kind": kind, "price": self._bar_close, "volume": volume,
+                               "simulated_seconds": self._simulated_seconds,
+                               "imbalance_side": "buy" if self._session_pressure >= 0 else "sell",
+                               "imbalance_quantity": round(volume * abs(self._session_pressure))})
 
     def _finish_bar(self) -> OHLCVBar:
         closed = self._snapshot(is_closed=True)
-        self._bar_start_seconds += self.interval_seconds
+        self._bar_start_seconds = self._simulated_seconds
         self._bar_elapsed_seconds = 0.0
         self._bar_open = self._bar_close
         self._bar_high = self._bar_close
@@ -549,6 +650,7 @@ def create_simulator(
     max_internal_step_seconds: float = 5.0,
     seed: int | None = None,
     profile: RegimeSwitchingProfile | None = None,
+    stock_session: USStockSession | None = None,
 ) -> PriceSimulator:
     """Create an OHLCV simulator using the selected price-path model."""
 
@@ -560,4 +662,5 @@ def create_simulator(
         seed=seed,
         profile=profile,
         simulation_model=simulation_model,
+        stock_session=stock_session,
     )

@@ -180,3 +180,144 @@ test('tiny-price public state retains ten distinct levels and a nonzero spread',
     assert.ok(Number(await page.locator('#orderBookSpread').innerText()) > 0, 'spread remains positive');
   } finally { await page.close(); }
 });
+
+test('US stock controls close the session, survive reload, and fit a mobile screen', async () => {
+  await fetch(`${base}/api/stop`, { method: 'POST', body: '{}' });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  try {
+    await page.goto(`${base}/`);
+    await page.getByLabel('Asset class').selectOption('stocks');
+    await page.getByLabel('US stock session', { exact: true }).selectOption('final_minute');
+    await page.getByLabel('Playback speed').selectOption('120');
+    await page.getByLabel('Bar interval', { exact: true }).selectOption('4h');
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#marketPhase').textContent === 'Market closed');
+    assert.equal(await page.locator('#marketClock').innerText(), '16:00:00 ET');
+    assert.match(await page.locator('#auctionSummary').innerText(), /Closing auction/);
+    assert.match(await page.locator('#auctionSummary').innerText(), /shares/);
+    assert.match(await page.locator('#chartSubtitle').innerText(), /ET/);
+    assert.equal(await page.locator('#visibleCount').innerText(), '1 candles');
+    assert.equal(await page.getByLabel('Playback speed').isEnabled(), true);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#marketPhase').textContent === 'Market closed');
+    assert.equal(await page.getByLabel('US stock session', { exact: true }).inputValue(), 'final_minute');
+    assert.equal(await page.getByLabel('Playback speed').inputValue(), '120');
+    await page.getByLabel('US stock session', { exact: true }).selectOption('opening');
+    await page.getByLabel('Playback speed').selectOption('20');
+    await page.getByLabel('Bar interval', { exact: true }).selectOption('1m');
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#marketPhase').textContent === 'Opening discovery');
+    assert.equal(await page.getByLabel('US stock session', { exact: true }).isDisabled(), true);
+    await page.screenshot({ path: '/tmp/stock-session-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(250);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: '/tmp/stock-session-mobile.png', fullPage: true });
+    await page.getByRole('button', { name: 'Stop stream', exact: true }).click();
+    await status(page, 'Stopped');
+    const clock = await page.locator('#marketClock').innerText();
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('#marketClock').innerText(), clock);
+    await page.getByLabel('Asset class').selectOption('spot_crypto');
+    assert.equal(await page.locator('#stockSession').isVisible(), false);
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await status(page, 'Running');
+    assert.match(await page.locator('#chartSubtitle').innerText(), /elapsed/);
+    await page.getByRole('button', { name: 'Stop stream', exact: true }).click();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('an old delayed poll cannot overwrite a stopped stock session', async () => {
+  await fetch(`${base}/api/stop`, { method: 'POST', body: '{}' });
+  const page = await browser.newPage();
+  let releaseOld, releaseFresh, captured;
+  const oldGate = new Promise((resolve) => { releaseOld = resolve; });
+  const freshGate = new Promise((resolve) => { releaseFresh = resolve; });
+  const capture = new Promise((resolve) => { captured = resolve; });
+  let first = true;
+  try {
+    await page.goto(`${base}/`);
+    await page.getByLabel('Asset class').selectOption('stocks');
+    await page.getByLabel('US stock session', { exact: true }).selectOption('midday');
+    await page.getByLabel('Playback speed').selectOption('600');
+    await page.getByLabel('Bar interval', { exact: true }).selectOption('1m');
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await status(page, 'Running');
+    await page.route('**/api/state*', async (route) => {
+      if (!first) { await freshGate; return route.continue(); }
+      first = false;
+      const response = await route.fetch();
+      const payload = await response.json();
+      assert.equal(payload.running, true);
+      captured();
+      await oldGate;
+      await route.fulfill({ json: payload });
+    });
+    await capture;
+    await page.getByRole('button', { name: 'Stop stream', exact: true }).click();
+    await status(page, 'Stopped');
+    const clock = await page.locator('#marketClock').innerText();
+    const oldResponse = page.waitForResponse((response) => response.url().includes('/api/state'));
+    releaseOld();
+    await oldResponse;
+    await page.waitForTimeout(100);
+    assert.match(await page.locator('#orderBookStatus').innerText(), /^Stopped/);
+    assert.equal(await page.locator('#marketClock').innerText(), clock);
+    const state = await (await page.request.get(`${base}/api/state?history=1`)).json();
+    assert.equal(await page.locator('#visibleCount').innerText(), `${state.history.length + 1} candles`);
+  } finally {
+    releaseOld(); releaseFresh();
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
+});
+
+test('a poll overtaken by Start recovers candles from the new stock run', async () => {
+  await fetch(`${base}/api/stop`, { method: 'POST', body: '{}' });
+  const page = await browser.newPage();
+  let releaseOld, captured;
+  const gate = new Promise((resolve) => { releaseOld = resolve; });
+  const capture = new Promise((resolve) => { captured = resolve; });
+  let first = true;
+  const freshUrls = [];
+  try {
+    await page.goto(`${base}/`);
+    await page.getByLabel('Asset class').selectOption('stocks');
+    await page.getByLabel('US stock session', { exact: true }).selectOption('midday');
+    await page.getByLabel('Playback speed').selectOption('600');
+    await page.getByLabel('Bar interval', { exact: true }).selectOption('1m');
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await status(page, 'Running');
+    await page.route('**/api/state*', async (route) => {
+      if (!first) { freshUrls.push(route.request().url()); return route.continue(); }
+      first = false;
+      captured();
+      // This old request reaches the service only after a new run has begun.
+      await gate;
+      const response = await route.fetch();
+      await route.fulfill({ response });
+    });
+    await capture;
+    await page.getByRole('button', { name: 'Stop stream', exact: true }).click();
+    await status(page, 'Stopped');
+    await page.getByLabel('US stock session', { exact: true }).selectOption('closing');
+    await page.getByRole('button', { name: 'Start stream', exact: true }).click();
+    await status(page, 'Running');
+    await page.waitForTimeout(150);
+    const oldResponse = page.waitForResponse((response) => response.url().includes('/api/state'));
+    releaseOld();
+    await oldResponse;
+    await page.waitForTimeout(350);
+    assert.ok(freshUrls.some((url) => new URL(url).searchParams.get('history') === '1'), 'the next fresh poll recovers consumed candles');
+    assert.equal(await page.getByLabel('US stock session', { exact: true }).inputValue(), 'closing');
+    await page.getByRole('button', { name: 'Stop stream', exact: true }).click();
+    await status(page, 'Stopped');
+  } finally {
+    releaseOld();
+    await page.unrouteAll({ behavior: 'wait' });
+    await page.close();
+  }
+});

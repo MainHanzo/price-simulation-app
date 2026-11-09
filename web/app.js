@@ -13,6 +13,8 @@ const emptyState = document.querySelector('#chartEmpty');
 const assetSelect = document.querySelector('#assetClass');
 const intervalSelect = document.querySelector('#barInterval');
 const simulationModelSelect = document.querySelector('#simulationModel');
+const sessionPresetSelect = document.querySelector('#sessionPreset');
+const playbackSpeedSelect = document.querySelector('#playbackSpeed');
 const modelDescription = document.querySelector('#modelDescription');
 const startButton = document.querySelector('#startButton');
 const stopButton = document.querySelector('#stopButton');
@@ -32,6 +34,9 @@ let latestState = null;
 let hoverIndex = -1;
 let chartLayout = null;
 let pollInFlight = false;
+let controlRequestInFlight = false;
+let stateGeneration = 0;
+let recoverHistoryOnPoll = false;
 let barSpacing = DEFAULT_BAR_SPACING;
 let rightOffset = 0;
 let followLatest = true;
@@ -65,6 +70,46 @@ function formatElapsed(seconds) {
   return `+${String(hours).padStart(3, '0')}h ${String(minutes).padStart(2, '0')}m`;
 }
 
+function formatMarketTime(elapsed, withSeconds = false) {
+  if (!latestState?.session) return formatElapsed(elapsed);
+  const seconds = Math.floor(latestState.session.start_seconds + elapsed);
+  const clock = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}`;
+  return withSeconds ? `${clock}:${String(seconds % 60).padStart(2, '0')} ET` : `${clock} ET`;
+}
+
+const sessionDescriptions = {
+  pre_open: 'Queued liquidity builds before the opening auction; continuous trading has not started.',
+  opening: 'Price discovery is fast: elevated volume and volatility, wider spreads, and less stable depth.',
+  regular: 'Normal trading conditions, with persistent buy or sell pressure and changing liquidity.',
+  midday: 'A quieter stretch: lower volume, calmer price changes, and slower liquidity updates.',
+  closing: 'Trading urgency rises: more volume, deeper liquidity, and generally tighter spreads.',
+  closed: 'The closing auction has set the official close. Start a new stream to simulate another session.',
+};
+
+function renderSession(state) {
+  const session = state.session;
+  document.querySelector('#stockSession').hidden = assetSelect.value !== 'stocks';
+  document.querySelector('#timeAxisNote').textContent = session
+    ? 'US stocks use Eastern market time · One typical day, without a holiday calendar.'
+    : 'Time axis uses elapsed simulation time, not calendar dates.';
+  if (!session) return;
+  document.querySelector('#marketClock').textContent = `${session.clock} ET`;
+  document.querySelector('#marketPhase').textContent = session.phase_label;
+  const remaining = Math.ceil(session.seconds_to_close);
+  const countdown = remaining >= 3600
+    ? `${Math.floor(remaining / 3600)}h ${Math.floor(remaining / 60) % 60}m`
+    : remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
+  document.querySelector('#sessionCountdown').textContent = session.phase === 'closed' ? 'Session complete'
+    : `${countdown} to close${state.running ? '' : ' · Stopped'}`;
+  document.querySelector('#sessionContext').textContent = sessionDescriptions[session.phase];
+  const events = session.auctions.map((auction) => `${auction.kind === 'opening' ? 'Opening' : 'Closing'} auction: ${formatPrice(auction.price)} · ${formatVolume(auction.volume)} shares`);
+  const upcoming = session.next_auction;
+  if (upcoming && (session.phase === 'pre_open' || session.phase === 'closing')) {
+    events.push(`${upcoming.kind === 'opening' ? 'Opening' : 'Closing'} indication: ${formatPrice(upcoming.indicative_price)} · ${formatVolume(upcoming.imbalance_quantity)} shares ${upcoming.imbalance_side} imbalance`);
+  }
+  document.querySelector('#auctionSummary').textContent = events.join(' / ') || 'Next event: closing auction at 16:00 ET.';
+}
+
 function setError(message = '') {
   errorMessage.textContent = message;
   errorMessage.hidden = !message;
@@ -74,6 +119,7 @@ function renderOrderBook(book, unavailable = false) {
   const status = document.querySelector('#orderBookStatus');
   status.dataset.state = unavailable ? 'unavailable' : book?.status || 'ready';
   status.textContent = unavailable ? 'Unavailable · retrying' : book ? (book.status === 'running' ? 'Running · simulated liquidity' : 'Stopped · last snapshot') : 'Ready to start';
+  if (!unavailable && book?.session_phase === 'closed') status.textContent = 'Market closed · last snapshot';
   const levels = document.querySelector('#orderBookLevels');
   const empty = document.querySelector('#orderBookEmpty');
   if (unavailable) {
@@ -126,6 +172,9 @@ function setRunState(running) {
   assetSelect.disabled = running;
   intervalSelect.disabled = running;
   simulationModelSelect.disabled = running;
+  sessionPresetSelect.disabled = running;
+  playbackSpeedSelect.disabled = running;
+  if (latestState?.session?.phase === 'closed') streamStateText.textContent = 'SESSION COMPLETE';
 }
 
 function updateMetrics(state) {
@@ -155,7 +204,7 @@ function updateMetrics(state) {
   elapsedElement.textContent = formatElapsed(bar.start_simulated_seconds + bar.elapsed_simulated_seconds);
 }
 
-function applyState(state, { useHistory = false } = {}) {
+function applyState(state, { useHistory = false, recoverHistory = false } = {}) {
   if (state.run_id !== runId) {
     runId = state.run_id;
     bars = useHistory ? [...(state.history || [])] : [];
@@ -166,12 +215,27 @@ function applyState(state, { useHistory = false } = {}) {
     if (state.asset_class) assetSelect.value = state.asset_class;
     if (state.bar_interval) intervalSelect.value = state.bar_interval;
     if (state.simulation_model) simulationModelSelect.value = state.simulation_model;
+    if (state.session) {
+      sessionPresetSelect.value = state.session.preset;
+      // API clients can choose any speed from 1–600; retain it on reload.
+      const speed = String(state.session.playback_speed);
+      if (![...playbackSpeedSelect.options].some((option) => option.value === speed)) {
+        playbackSpeedSelect.add(new Option(`${speed}×`, speed));
+      }
+      playbackSpeedSelect.value = speed;
+    }
   }
   if (useHistory && state.history) bars = [...state.history];
   if (!useHistory) {
     const receivedBars = state.closed_bars || [];
     if (!followLatest) rightOffset += receivedBars.length;
     bars.push(...receivedBars);
+  }
+  if (recoverHistory && state.history) {
+    const before = bars.length;
+    bars = [...new Map([...bars, ...state.history].map((bar) => [bar.start_simulated_seconds, bar])).values()]
+      .sort((a, b) => a.start_simulated_seconds - b.start_simulated_seconds);
+    if (!followLatest) rightOffset += bars.length - before;
   }
   if (bars.length > MAX_HISTORY_BARS) {
     const removed = bars.length - MAX_HISTORY_BARS;
@@ -184,9 +248,10 @@ function applyState(state, { useHistory = false } = {}) {
   setRunState(state.running);
   updateMetrics(state);
   renderOrderBook(state.order_book);
+  renderSession(state);
   const intervalName = intervalSelect.options[intervalSelect.selectedIndex]?.textContent || 'Elapsed simulated time';
   const modelLabel = state.model_label || simulationModelSelect.options[simulationModelSelect.selectedIndex]?.textContent || 'Simulation';
-  document.querySelector('#chartSubtitle').textContent = `${modelLabel} · ${intervalName} bars · elapsed simulated time`;
+  document.querySelector('#chartSubtitle').textContent = `${modelLabel} · ${intervalName} bars · ${state.session ? 'US stock session · ET' : 'elapsed simulated time'}`;
   modelDescription.textContent = modelDescriptions[simulationModelSelect.value] || modelDescriptions.regime_switching;
   emptyState.hidden = Boolean(formingBar);
   updateLatestButton();
@@ -210,14 +275,25 @@ async function requestJson(path, options = {}) {
 }
 
 async function pollState() {
-  if (pollInFlight) return;
+  if (pollInFlight || controlRequestInFlight) return;
   pollInFlight = true;
+  const generation = stateGeneration;
   try {
     const firstRequest = runId === null;
-    const state = await requestJson(`/api/state${firstRequest ? '?history=1' : ''}`);
-    applyState(state, { useHistory: firstRequest });
+    const recoverHistory = recoverHistoryOnPoll;
+    const state = await requestJson(`/api/state${firstRequest || recoverHistory ? '?history=1' : ''}`);
+    if (generation !== stateGeneration) {
+      recoverHistoryOnPoll = true;
+      return;
+    }
+    applyState(state, { useHistory: firstRequest, recoverHistory });
+    recoverHistoryOnPoll = false;
     setError('');
   } catch (error) {
+    if (generation !== stateGeneration) {
+      recoverHistoryOnPoll = true;
+      return;
+    }
     setError(`The simulation service is unavailable: ${error.message}`);
     renderOrderBook(null, true);
   } finally {
@@ -227,6 +303,9 @@ async function pollState() {
 
 document.querySelector('#controls').addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (controlRequestInFlight) return;
+  controlRequestInFlight = true;
+  stateGeneration++;
   startButton.disabled = true;
   setError('');
   try {
@@ -236,6 +315,8 @@ document.querySelector('#controls').addEventListener('submit', async (event) => 
         asset_class: assetSelect.value,
         bar_interval: intervalSelect.value,
         simulation_model: simulationModelSelect.value,
+        session_preset: sessionPresetSelect.value,
+        playback_speed: Number(playbackSpeedSelect.value),
       }),
     });
     bars = [];
@@ -245,6 +326,7 @@ document.querySelector('#controls').addEventListener('submit', async (event) => 
     setError(error.message);
   } finally {
     startButton.disabled = false;
+    controlRequestInFlight = false;
   }
 });
 
@@ -255,6 +337,10 @@ simulationModelSelect.addEventListener('change', () => {
   document.querySelector('#chartSubtitle').textContent = `${modelLabel} · ${intervalName} bars · elapsed simulated time`;
 });
 
+assetSelect.addEventListener('change', () => {
+  document.querySelector('#stockSession').hidden = assetSelect.value !== 'stocks';
+});
+
 intervalSelect.addEventListener('change', () => {
   const modelLabel = simulationModelSelect.options[simulationModelSelect.selectedIndex]?.textContent || 'Simulation';
   const intervalName = intervalSelect.options[intervalSelect.selectedIndex]?.textContent || 'Elapsed simulated time';
@@ -262,20 +348,26 @@ intervalSelect.addEventListener('change', () => {
 });
 
 stopButton.addEventListener('click', async () => {
+  if (controlRequestInFlight) return;
+  controlRequestInFlight = true;
+  stateGeneration++;
   stopButton.disabled = true;
   try {
     const state = await requestJson('/api/stop', { method: 'POST', body: '{}' });
-    applyState(state);
+    // A superseded poll may have consumed closed candles. Recover them without
+    // discarding older chart history already loaded in this browser.
+    applyState(state, { recoverHistory: true });
   } catch (error) {
     setError(error.message);
   } finally {
     stopButton.disabled = false;
+    controlRequestInFlight = false;
   }
 });
 
 function visibleBars() {
   const result = [...bars];
-  if (formingBar) result.push(formingBar);
+  if (formingBar && (!formingBar.is_closed || result.at(-1)?.start_simulated_seconds !== formingBar.start_simulated_seconds)) result.push(formingBar);
   return result;
 }
 
@@ -555,7 +647,7 @@ function drawTimeLabels(data, width, left, plotRight, plotWidth, y, spacing, end
     const x = plotRight - (endIndex - index + 0.5) * spacing;
     const align = x <= left + 44 ? 'left' : x >= plotRight - 44 ? 'right' : 'center';
     context.textAlign = align;
-    context.fillText(formatElapsed(elapsed).replace('+', ''), x, y + 12);
+    context.fillText(formatMarketTime(elapsed).replace('+', ''), x, y + 12);
   }
   context.restore();
 }
@@ -595,7 +687,7 @@ function drawCrosshair(index, mapPrice) {
   const volumeLabel = latestState?.current_bar?.volume_unit || 'units';
   const directionClass = bar.close >= bar.open ? 'tooltip-up' : 'tooltip-down';
   tooltip.innerHTML = `
-    <div class="tooltip-title">${formatElapsed(start)} elapsed</div>
+    <div class="tooltip-title">${latestState?.session ? formatMarketTime(start, true) : `${formatElapsed(start)} elapsed`}</div>
     <div class="tooltip-row"><span>Open</span><strong>${formatPrice(bar.open)}</strong></div>
     <div class="tooltip-row"><span>High</span><strong>${formatPrice(bar.high)}</strong></div>
     <div class="tooltip-row"><span>Low</span><strong>${formatPrice(bar.low)}</strong></div>

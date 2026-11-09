@@ -1,0 +1,28 @@
+.session-strip {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) auto;
+  gap: 10px 24px;
+  margin-top: 24px;
+  padding: 16px 19px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-bright);
+}
+.session-strip[hidden] { display: none; }
+.session-settings { display: flex; gap: 24px; align-items: center; }
+.session-settings .select-control { min-width: 170px; padding: 0; gap: 7px; }
+.session-live { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 13px; }
+.session-live strong { font: 500 20px var(--mono); letter-spacing: -.04em; }
+.session-live > span:last-child { width: 100%; text-align: right; color: var(--muted); font: 10px var(--mono); }
+.session-phase { padding: 6px 8px; border-radius: 5px; background: #e4eddb; color: #36572c; font: 10px var(--mono); }
+.session-context, .auction-summary { grid-column: 1 / -1; margin: 0; color: var(--muted); font: 11px/1.6 var(--sans); }
+.auction-summary { padding-top: 9px; border-top: 1px solid var(--line); font: 10px/1.6 var(--mono); }
+@media (max-width: 800px) {
+  .session-strip { grid-template-columns: minmax(0, 1fr); padding: 15px 13px; gap: 13px; }
+  .session-settings { gap: 12px; }
+  .session-settings .select-control { min-width: 0; flex: 1; }
+  .session-settings select { font-size: 11px; }
+  .session-live { justify-content: flex-start; }
+  .session-live > span:last-child { text-align: left; }
+  .session-live strong { font-size: 18px; }
+}

@@ -15,6 +15,7 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from price_generator.order_book import SimulatedOrderBook
+from price_generator.market_session import USStockSession
 
 from price_generator import (
     AssetClass,
@@ -98,18 +99,24 @@ class SimulationSession:
         self._simulation_model: str | None = None
         self._order_book: SimulatedOrderBook | None = None
 
-    def start(self, asset_class: str, bar_interval: str, simulation_model: str) -> dict:
+    def start(self, asset_class: str, bar_interval: str, simulation_model: str,
+              session_preset: str = "opening", playback_speed: float = 20,
+              seed: int | None = None) -> dict:
         asset = AssetClass(asset_class)
         model = SimulationModel(simulation_model)
         if bar_interval not in BAR_INTERVAL_SECONDS:
             raise ValueError("Choose one of the supported bar intervals")
 
+        stock_session = USStockSession(session_preset, playback_speed) if asset is AssetClass.STOCKS else None
+        # Construct and validate first: a rejected request must preserve the run.
+        simulator = create_simulator(asset, bar_interval, simulation_model=model,
+                                     stock_session=stock_session, seed=seed)
         with self._lock:
-            self._simulator = create_simulator(asset, bar_interval, simulation_model=model)
+            self._simulator = simulator
             self._running = True
             self._last_wall_time = time.monotonic()
             self._run_id += 1
-            self._order_book = SimulatedOrderBook(self._run_id)
+            self._order_book = SimulatedOrderBook(self._run_id, seed=seed)
             self._history.clear()
             self._pending_bars.clear()
             self._current_bar = self._simulator.current_bar
@@ -124,7 +131,7 @@ class SimulationSession:
             self._advance_locked()
             self._running = False
             self._last_wall_time = None
-            return self._snapshot_locked()
+            return self._snapshot_locked(include_history=True)
 
     def state(self, *, include_history: bool = False) -> dict:
         with self._lock:
@@ -140,7 +147,8 @@ class SimulationSession:
         if self._current_bar is None or self._order_book is None:
             return None
         bar = self._current_bar
-        return self._order_book.update(bar.close, bar.start_simulated_seconds + bar.elapsed_simulated_seconds, self._running)
+        return self._order_book.update(bar.close, bar.start_simulated_seconds + bar.elapsed_simulated_seconds,
+                                       self._running, self._simulator.session_conditions)
 
     def _advance_locked(self) -> None:
         if not self._running or self._simulator is None:
@@ -153,6 +161,9 @@ class SimulationSession:
             self._history.append(bar)
             self._pending_bars.append(bar)
         self._current_bar = result.forming_bar
+        if self._simulator.session_state and self._simulator.session_state["phase"] == "closed":
+            self._running = False
+            self._last_wall_time = None
 
     def _snapshot_locked(self, *, include_history: bool = False) -> dict:
         closed_bars = [asdict(bar) for bar in self._pending_bars]
@@ -172,6 +183,7 @@ class SimulationSession:
             "current_bar": asdict(self._current_bar) if self._current_bar else None,
             "closed_bars": closed_bars,
             "order_book": self._book_snapshot_locked(),
+            "session": self._simulator.session_state if self._simulator else None,
         }
         if include_history:
             payload["history"] = [asdict(bar) for bar in self._history]
@@ -256,11 +268,16 @@ class RequestHandler(SimpleHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(content_length) or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
             if path == "/api/start":
                 result = session.start(
                     str(payload.get("asset_class", "")),
                     str(payload.get("bar_interval", "")),
                     str(payload.get("simulation_model", SimulationModel.REGIME_SWITCHING.value)),
+                    session_preset=payload.get("session_preset", "opening"),
+                    playback_speed=payload.get("playback_speed", 20),
+                    seed=payload.get("seed"),
                 )
                 self._send_json(200, result)
                 return
